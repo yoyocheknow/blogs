@@ -1,0 +1,1101 @@
+<!DOCTYPE html>
+<html>
+  <head>
+  <title>【翻译】CompletableFuture初探 – blogs – yoyocheknow的博客</title>
+
+      <meta charset="utf-8" />
+    <meta content='text/html; charset=utf-8' http-equiv='Content-Type'>
+    <meta http-equiv='X-UA-Compatible' content='IE=edge'>
+    <meta name='viewport' content='width=device-width, initial-scale=1.0, maximum-scale=1.0'>
+
+    
+    <meta name="description" content="翻译自https://www.baeldung.com/java-completablefuture
+
+###1.介绍
+这篇文章主要介绍一下Java 8 Concurrency API 改进的类-CompletableFuture的一些基本功能和使用。
+
+###2.Java中的异步计算
+异步计算是比较难以表述的，通常我们希望任何运算都是一步一步的，但是在异步运算的例子中，像callback回调这种行为通常会穿插在代码中，或者互相嵌套调用。当我们需要在其中的一个步骤处理可能会发生的异常时，事情会变得更加糟糕。
+
+Future接口是Java5添加用来处理异步运算的，但是Future并没有提供将异步运算和处理异常相结合的方法。
+
+在Java8，CompletableFuture类诞生了。它不仅实现了Future接口还实现了CompletionStage接口。CompletionStage接口定义了异步计算的步骤和其他步骤相结合的协议。
+
+CompetableFuture同时提供了composing,combining,执行异步运算任务，处理异常等50多种方法。
+
+虽然这样一个大的API是颠覆性的，但是这些大部分可以用几个清晰明了的case来演示。
+
+###3.使用CompletableFuture作为一个简单的Future
+首先，CompletanbleFuture类是Future接口的一个实现，所以你可以不需要额外的实现逻辑使将它作为一个普通的Future使用。
+
+例如，你可以创建一个无参数构造方法的类实例来代表一些异步结果，通过消费者来调用处理，或者使用complete方法。消费者可以通过get方法来获取结果，但是在使用get方法时会被阻塞住直到异步的结果出来。
+
+下面的例子中，我们创建来一个CompletableFuture实例，接着在另一个线程中获取它的计算然后再立马返回Future。当计算完成时，通过Future提供的complete方法可以结束这个运算。
+
+ 1 public Future&lt;String&gt; calculateAsync() throws InterruptedException {
+ 2     CompletableFuture&lt;String&gt; completableFuture 
+ 3       = new CompletableFuture&lt;&gt;();
+ 4  
+ 5     Executors.newCachedThreadPool().submit(() -&gt; {
+ 6         Thread.sleep(500);
+ 7         completableFuture.complete(&quot;Hello&quot;);
+ 8         return null;
+ 9     });
+10  
+11     return completableFuture;
+12 }
+13 
+14  Future&lt;String&gt; completableFuture = calculateAsync();
+15  String result = completableFuture.get();
+16  System.out.println(&quot;result=&quot;+result);
+
+结果：
+
+result=Hello
+为了实现异步运算，我们使用Executor API来实现。但是CompletableFuture的创建和结束方法可以被任何并发机制或者包含原生线程的API使用。
+
+注意： calculateAsync( ）返回的是一个Future实例。
+
+我们可以简单地调用Future实例的get方法来获取结果，但是会block住。同时需要注意的是get()方法会抛出一些异常，比如在运行期间发生的异常：ExecutionException，当一个线程执行一个方法时被中断的异常：InterruptedException。
+
+如果你已经直到来计算的结果，你可以使用静态方法completedFuture()，带有一个参数代表它计算的一个结果。那么Future的get()方法将永远不会阻塞，相反会立马返回结果。
+
+1 Future&lt;String&gt; completableFuture = CompletableFuture.completedFuture(&quot;Hello&quot;);
+2 String result = completableFuture.get();
+3 System.out.println(&quot;result=&quot;+result);
+
+结果：
+
+result=Hello
+如果发生了另外一个场景，比如你想取消Future的执行。假设我们不想获取结果了，想要取消异步任务的执行，这个需求可以用Future的cancel()方法实现。这个方法会接受一个boolean参数mayInterruptIfRunning，但是在CompletableFuture中没有这个作用。因为对于CompletanleFuture来说不会使用中断来处理进程。
+
+下面是修改过的异步方法：
+
+ 1 public Future&lt;String&gt; calculateAsyncWithCancellation() throws InterruptedException {
+ 2     CompletableFuture&lt;String&gt; completableFuture = new CompletableFuture&lt;&gt;();
+ 3  
+ 4     Executors.newCachedThreadPool().submit(() -&gt; {
+ 5         Thread.sleep(500);
+ 6         completableFuture.cancel(false);
+ 7         return null;
+ 8     });
+ 9  
+10     return completableFuture;
+11 }
+
+当我们使用Future的get()方法阻塞地去获取结果时，就会抛出CancellationException的异常/
+
+1 Future&lt;String&gt; future = calculateAsyncWithCancellation();
+2 future.get(); // CancellationException
+
+结果：
+
+1 Exception in thread &quot;main&quot; java.util.concurrent.CancellationException
+2 	at java.base/java.util.concurrent.CompletableFuture.cancel(CompletableFuture.java:2475)
+3 	at main.java.com.yoyocheknow.java8.CompletableFutureTest.lambda$calculateAsyncWithCancellation$6(CompletableFutureTest.java:126)
+4 	at java.base/java.util.concurrent.FutureTask.run(FutureTask.java:264)
+5 	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1128)
+6 	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:628)
+7 	at java.base/java.lang.Thread.run(Thread.java:830)
+
+###4.CompletableFuture的封装方法
+上面的代码我们都使用了并发的机制去执行的（比如使用线程池），但是如果我们想要跳过那些无用的模版方法仅仅是简单地异步执行一些code改如何做呢？
+
+静态方法例如：runAsync()和supplyAsync()，都允许我们创建一个CompletableFuture 实例，相应地都是Runnable和Supplier实例。
+
+由于Java8的新特性，Runnable和Suplier都允许通过lambda表达式传递他们的实例。
+
+Runnable接口和之前在线程中使用的老接口一样，它不允许有返回值。
+
+Supplier接口是一个没有参数的通用方法，它返回一个参数化的值。它允许我们通过传递一个lambda表达式作为一个Supplier实例，然后返回其结果。代码如下：
+
+1 CompletableFuture&lt;String&gt; future= CompletableFuture.supplyAsync(() -&gt; &quot;Hello&quot;);
+2 assertEquals(&quot;Hello&quot;, future.get());
+
+###5.处理异步计算结果
+处理计算结果的最通用的办法是传入一个方法。thenApply()方法就可以做到：接受一个Function实例，使用它处理结果并且返回一个包含结果的Future。
+
+1 CompletableFuture&lt;String&gt; completableFuture
+2   = CompletableFuture.supplyAsync(() -&gt; &quot;Hello&quot;);
+3  
+4 CompletableFuture&lt;String&gt; future = completableFuture
+5   .thenApply(s -&gt; s + &quot; World&quot;);
+6  
+7 assertEquals(&quot;Hello World&quot;, future.get());
+
+如果你不需要在Future链条下返回一个值，你可以使用Consumer方法接口的一个实例。它接受一个参数，但是不返回值。
+
+对于不需要返回值的情况，有一种方法可以供你选择-thenAccept()方法，它接受一个Consumer然后传递给她计算的结果，最终调用future.get()方法会返回空值。
+
+1 CompletableFuture&lt;String&gt; completableFuture
+2   = CompletableFuture.supplyAsync(() -&gt; &quot;Hello&quot;);
+3  
+4 CompletableFuture&lt;Void&gt; future = completableFuture
+5   .thenAccept(s -&gt; System.out.println(&quot;Computation returned: &quot; + s));
+6  
+7  System.out.print(&quot;result=&quot;+future.get());
+
+输出：
+
+1 Computation returned: Hello
+2 result=null
+
+最后，如果你既不需要计算返回的值也不想要在最后获取返回，那么那你可以传递一个Runnable lambda表达式给thenRun()方法。在下面这个离职中，future.get()方法调用后，我们仅仅打印在控制台。
+
+1 CompletableFuture&lt;String&gt; completableFuture 
+2   = CompletableFuture.supplyAsync(() -&gt; &quot;Hello&quot;);
+3  
+4 CompletableFuture&lt;Void&gt; future = completableFuture
+5   .thenRun(() -&gt; System.out.println(&quot;Computation finished.&quot;));
+6  
+7 System.out.print(&quot;result=&quot;+future.get());
+
+输出：
+
+Computation finished.
+result=null
+###6.合并特性
+CompletableFuture API最好的功能就是在计算步骤的链条当中，合并CompletableFuture实例的能力。
+
+CompletableFuture 链的结果就是允许成链和组合的能力，这种方式在编程语言当中是独一无二的。并且经常用来作为单一职责设计模式。
+
+下面的例子种我们使用thenCompose()方法来依次合并两个Futures。注意，这个方法返回一个CompletableFuture实例。这个方法的参数是上一个计算步骤的结果。这样就允许我们在下一个CompletableFuture的lambda表达式中使用这个值。
+
+1 CompletableFuture&lt;String&gt; completableFuture 
+2   = CompletableFuture.supplyAsync(() -&gt; &quot;Hello&quot;)
+3     .thenCompose(s -&gt; CompletableFuture.supplyAsync(() -&gt; s + &quot; World&quot;));
+4  
+5 assertEquals(&quot;Hello World&quot;, completableFuture.get());
+
+thenCompose()方法和thenApply()方法实现了构建单一模式的模版。他们特别像Java8中的Stream和Optional类中的map和flatMap方法。
+
+上面两个方法都接受一个函数，然后将其应用于计算结果。但是thenCompose(flatMap)方法接受一个与之相同类型的函数。这个函数的结构体允许组合这些类的实例成一个模块。
+
+如果你想执行两个独立的Futures，并且对他们的结果做一些操作，那么就可以使用thenCombine()方法，用它来接受一个Future，和一个带有两个参数的Funtion去处理两个Futures的结果。例如：
+
+1 CompletableFuture&lt;String&gt; completableFuture 
+2   = CompletableFuture.supplyAsync(() -&gt; &quot;Hello&quot;)
+3     .thenCombine(
+4                 CompletableFuture.supplyAsync(() -&gt; &quot; World&quot;), (s1, s2) -&gt; s1 + s2)
+5                  );
+6  
+7 assertEquals(&quot;Hello World&quot;, completableFuture.get());
+
+你想对两个Future的结果做一些操作，更为简单的例子是，不需要传递到Future chain中任何结果值。使用thenAcceptBoth()方法即可。
+
+1 CompletableFuture future = CompletableFuture.supplyAsync(() -&gt; &quot;Hello&quot;)
+2   .thenAcceptBoth(CompletableFuture.supplyAsync(() -&gt; &quot; World&quot;),
+3     (s1, s2) -&gt; System.out.println(s1 + s2));
+
+###7.thenApply()和thenCompose()之间的不同
+在我们前面的部分当中，我们展示了thenApply()和thenCompose()的使用方法。两个API被用在CompletableFuture调用链当中，但是这两者之间使用是不同的。
+
+####7.1 thenApply()
+这个方法被用来处理前一个调用的结果。然而，一个关键的点就是要记住，所有调用的返回值将会被组合。所以这个方法在我们想要转化一个CompletableFuture结果时是有用的。
+
+1 CompletableFuture&lt;Integer&gt; finalResult = compute().thenApply(s-&gt; s + 1);
+
+####7.2 thenCompose()
+这个方法和thenApply()类似都会返回一个新的执行阶段。thenCompose()使用前面的阶段作为参数。它将会打平并且返回一个带有结果的Future，而不是像thenApply()那样嵌套的结果。
+
+CompletableFuture computeAnother(Integer i){
+    return CompletableFuture.supplyAsync(() -&gt; 10 + i);
+}
+CompletableFuture finalResult = compute().thenCompose(this::computeAnother);
+所以要想对CompletableFuture方法以链的形式呈现，最好使用thenCompose()方法。另外注意，这两个方法之间的不同是和map() 与flatMap()之间的不同是类似的。
+
+###8.以并行的方式运行多个Futures
+当我们需要以并行的方式执行多个Futures时，我们通常想要等待他们所有执行完然后处理他们组合的结果。
+
+CompletableFuture的allOf静态方法允许等待所有Futures的完成。
+
+CompletableFuture future1  
+  = CompletableFuture.supplyAsync(() -&gt; "Hello");
+CompletableFuture future2  
+  = CompletableFuture.supplyAsync(() -&gt; "Beautiful");
+CompletableFuture future3  
+  = CompletableFuture.supplyAsync(() -&gt; "World");
+
+CompletableFuture combinedFuture 
+  = CompletableFuture.allOf(future1, future2, future3);
+
+combinedFuture.get();
+
+assertTrue(future1.isDone());
+assertTrue(future2.isDone());
+assertTrue(future3.isDone());
+注意，CompletableFuture.allOf() 的返回值是一个CompletableFuture 。这个方法的限制就在于他不能发挥所有Futures组合的结果。相反你不得不手动从Futures里获取结果。幸运的是CompletableFeature.join()方法和Java 8 Streams API让他变得更加简单：
+
+String combined = Stream.of(future1, future2, future3)
+  .map(CompletableFuture::join)
+  .collect(Collectors.joining(“ “));
+
+assertEquals(“Hello Beautiful World”, combined);
+CompletableFuture.join()方法与get()方法类似。但是当Future没有正常完成时，他会抛出一个异常。在Stream.map()方法中使用join使之成为可能。
+
+###9.处理错误
+对于异步计算过程中的错误处理，throw/catch常用方法是一个流行的趋势。
+
+相对于在语法块中捕获异常，CompletableFuture 允许你使用handle()方法去处理异常。这个方法接受两个参数：一个是计算结果（如果成功的话），一个是抛出的异常（如果计算过程中没有正常完成）。
+
+在下面的例子中，当异步运算因为没有提供name而异常结束时，我们使用handle()方法来获取一个默认值。
+
+String name = null;
+
+CompletableFuture completableFuture  
+  =  CompletableFuture.supplyAsync(() -&gt; {
+      if (name == null) {
+          throw new RuntimeException("Computation error!");
+      }
+      return "Hello, " + name;
+  })}).handle((s, t) -&gt; s != null ? s : "Hello, Stranger!");
+
+assertEquals(“Hello, Stranger!”, completableFuture.get());
+考虑另外一种场景，假设我们想手动结束一个带有返回值的Future，但是也有能力去处理异常，那么completeExceptionally()方法就很适合。下面的例子中completableFuture.get()方法抛出来一个RuntimeException
+
+CompletableFuture completableFuture = new CompletableFuture&lt;&gt;();
+
+completableFuture.completeExceptionally(
+  new RuntimeException(“Calculation failed!”));
+
+completableFuture.get(); // ExecutionException
+上面的例子中我们可以使用handle()方法处理异步异常，但是使用get()方法我们可以使用一个更为典型的异步异常处理方式。
+
+###10.异步方法
+CompletableFuture类的API中大部分都有两个以Async结尾的变种。这些方法通常是用于运行另一个线程的执行步骤。
+
+带有Async后缀的方法通过调用一个线程来执行下一个执行阶段。Async方法中没有使用Executor线程池参数的 会使用公共的fork/join线程池框架比如ForkJoinPool.commonPool()来执行。带有Executor参数的Async方法通过Executor线程池运行下一步。
+
+下面是一个使用Future实例处理计算结果过程的例子。这个唯一可见的不同之处是thenApplyAsync()方法。下面方法的一个参数应用是被修饰为ForkJoinTask实例。这样就允许你的计算可以并行执行，可以是你的系统资源更加有效。
+
+CompletableFuture completableFuture  
+  = CompletableFuture.supplyAsync(() -&gt; "Hello");
+
+CompletableFuture future = completableFuture
+  .thenApplyAsync(s -&gt; s + " World");
+
+assertEquals(“Hello World”, future.get());
+###11.总结
+这篇文章我们总结了CompletableFuture类的一些方法和常用的用法。源码见：
+
+https://github.com/eugenp/tutorials/tree/master/core-java-modules/core-java-concurrency-basic
+
+" />
+    <meta property="og:description" content="翻译自https://www.baeldung.com/java-completablefuture
+
+###1.介绍
+这篇文章主要介绍一下Java 8 Concurrency API 改进的类-CompletableFuture的一些基本功能和使用。
+
+###2.Java中的异步计算
+异步计算是比较难以表述的，通常我们希望任何运算都是一步一步的，但是在异步运算的例子中，像callback回调这种行为通常会穿插在代码中，或者互相嵌套调用。当我们需要在其中的一个步骤处理可能会发生的异常时，事情会变得更加糟糕。
+
+Future接口是Java5添加用来处理异步运算的，但是Future并没有提供将异步运算和处理异常相结合的方法。
+
+在Java8，CompletableFuture类诞生了。它不仅实现了Future接口还实现了CompletionStage接口。CompletionStage接口定义了异步计算的步骤和其他步骤相结合的协议。
+
+CompetableFuture同时提供了composing,combining,执行异步运算任务，处理异常等50多种方法。
+
+虽然这样一个大的API是颠覆性的，但是这些大部分可以用几个清晰明了的case来演示。
+
+###3.使用CompletableFuture作为一个简单的Future
+首先，CompletanbleFuture类是Future接口的一个实现，所以你可以不需要额外的实现逻辑使将它作为一个普通的Future使用。
+
+例如，你可以创建一个无参数构造方法的类实例来代表一些异步结果，通过消费者来调用处理，或者使用complete方法。消费者可以通过get方法来获取结果，但是在使用get方法时会被阻塞住直到异步的结果出来。
+
+下面的例子中，我们创建来一个CompletableFuture实例，接着在另一个线程中获取它的计算然后再立马返回Future。当计算完成时，通过Future提供的complete方法可以结束这个运算。
+
+ 1 public Future&lt;String&gt; calculateAsync() throws InterruptedException {
+ 2     CompletableFuture&lt;String&gt; completableFuture 
+ 3       = new CompletableFuture&lt;&gt;();
+ 4  
+ 5     Executors.newCachedThreadPool().submit(() -&gt; {
+ 6         Thread.sleep(500);
+ 7         completableFuture.complete(&quot;Hello&quot;);
+ 8         return null;
+ 9     });
+10  
+11     return completableFuture;
+12 }
+13 
+14  Future&lt;String&gt; completableFuture = calculateAsync();
+15  String result = completableFuture.get();
+16  System.out.println(&quot;result=&quot;+result);
+
+结果：
+
+result=Hello
+为了实现异步运算，我们使用Executor API来实现。但是CompletableFuture的创建和结束方法可以被任何并发机制或者包含原生线程的API使用。
+
+注意： calculateAsync( ）返回的是一个Future实例。
+
+我们可以简单地调用Future实例的get方法来获取结果，但是会block住。同时需要注意的是get()方法会抛出一些异常，比如在运行期间发生的异常：ExecutionException，当一个线程执行一个方法时被中断的异常：InterruptedException。
+
+如果你已经直到来计算的结果，你可以使用静态方法completedFuture()，带有一个参数代表它计算的一个结果。那么Future的get()方法将永远不会阻塞，相反会立马返回结果。
+
+1 Future&lt;String&gt; completableFuture = CompletableFuture.completedFuture(&quot;Hello&quot;);
+2 String result = completableFuture.get();
+3 System.out.println(&quot;result=&quot;+result);
+
+结果：
+
+result=Hello
+如果发生了另外一个场景，比如你想取消Future的执行。假设我们不想获取结果了，想要取消异步任务的执行，这个需求可以用Future的cancel()方法实现。这个方法会接受一个boolean参数mayInterruptIfRunning，但是在CompletableFuture中没有这个作用。因为对于CompletanleFuture来说不会使用中断来处理进程。
+
+下面是修改过的异步方法：
+
+ 1 public Future&lt;String&gt; calculateAsyncWithCancellation() throws InterruptedException {
+ 2     CompletableFuture&lt;String&gt; completableFuture = new CompletableFuture&lt;&gt;();
+ 3  
+ 4     Executors.newCachedThreadPool().submit(() -&gt; {
+ 5         Thread.sleep(500);
+ 6         completableFuture.cancel(false);
+ 7         return null;
+ 8     });
+ 9  
+10     return completableFuture;
+11 }
+
+当我们使用Future的get()方法阻塞地去获取结果时，就会抛出CancellationException的异常/
+
+1 Future&lt;String&gt; future = calculateAsyncWithCancellation();
+2 future.get(); // CancellationException
+
+结果：
+
+1 Exception in thread &quot;main&quot; java.util.concurrent.CancellationException
+2 	at java.base/java.util.concurrent.CompletableFuture.cancel(CompletableFuture.java:2475)
+3 	at main.java.com.yoyocheknow.java8.CompletableFutureTest.lambda$calculateAsyncWithCancellation$6(CompletableFutureTest.java:126)
+4 	at java.base/java.util.concurrent.FutureTask.run(FutureTask.java:264)
+5 	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1128)
+6 	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:628)
+7 	at java.base/java.lang.Thread.run(Thread.java:830)
+
+###4.CompletableFuture的封装方法
+上面的代码我们都使用了并发的机制去执行的（比如使用线程池），但是如果我们想要跳过那些无用的模版方法仅仅是简单地异步执行一些code改如何做呢？
+
+静态方法例如：runAsync()和supplyAsync()，都允许我们创建一个CompletableFuture 实例，相应地都是Runnable和Supplier实例。
+
+由于Java8的新特性，Runnable和Suplier都允许通过lambda表达式传递他们的实例。
+
+Runnable接口和之前在线程中使用的老接口一样，它不允许有返回值。
+
+Supplier接口是一个没有参数的通用方法，它返回一个参数化的值。它允许我们通过传递一个lambda表达式作为一个Supplier实例，然后返回其结果。代码如下：
+
+1 CompletableFuture&lt;String&gt; future= CompletableFuture.supplyAsync(() -&gt; &quot;Hello&quot;);
+2 assertEquals(&quot;Hello&quot;, future.get());
+
+###5.处理异步计算结果
+处理计算结果的最通用的办法是传入一个方法。thenApply()方法就可以做到：接受一个Function实例，使用它处理结果并且返回一个包含结果的Future。
+
+1 CompletableFuture&lt;String&gt; completableFuture
+2   = CompletableFuture.supplyAsync(() -&gt; &quot;Hello&quot;);
+3  
+4 CompletableFuture&lt;String&gt; future = completableFuture
+5   .thenApply(s -&gt; s + &quot; World&quot;);
+6  
+7 assertEquals(&quot;Hello World&quot;, future.get());
+
+如果你不需要在Future链条下返回一个值，你可以使用Consumer方法接口的一个实例。它接受一个参数，但是不返回值。
+
+对于不需要返回值的情况，有一种方法可以供你选择-thenAccept()方法，它接受一个Consumer然后传递给她计算的结果，最终调用future.get()方法会返回空值。
+
+1 CompletableFuture&lt;String&gt; completableFuture
+2   = CompletableFuture.supplyAsync(() -&gt; &quot;Hello&quot;);
+3  
+4 CompletableFuture&lt;Void&gt; future = completableFuture
+5   .thenAccept(s -&gt; System.out.println(&quot;Computation returned: &quot; + s));
+6  
+7  System.out.print(&quot;result=&quot;+future.get());
+
+输出：
+
+1 Computation returned: Hello
+2 result=null
+
+最后，如果你既不需要计算返回的值也不想要在最后获取返回，那么那你可以传递一个Runnable lambda表达式给thenRun()方法。在下面这个离职中，future.get()方法调用后，我们仅仅打印在控制台。
+
+1 CompletableFuture&lt;String&gt; completableFuture 
+2   = CompletableFuture.supplyAsync(() -&gt; &quot;Hello&quot;);
+3  
+4 CompletableFuture&lt;Void&gt; future = completableFuture
+5   .thenRun(() -&gt; System.out.println(&quot;Computation finished.&quot;));
+6  
+7 System.out.print(&quot;result=&quot;+future.get());
+
+输出：
+
+Computation finished.
+result=null
+###6.合并特性
+CompletableFuture API最好的功能就是在计算步骤的链条当中，合并CompletableFuture实例的能力。
+
+CompletableFuture 链的结果就是允许成链和组合的能力，这种方式在编程语言当中是独一无二的。并且经常用来作为单一职责设计模式。
+
+下面的例子种我们使用thenCompose()方法来依次合并两个Futures。注意，这个方法返回一个CompletableFuture实例。这个方法的参数是上一个计算步骤的结果。这样就允许我们在下一个CompletableFuture的lambda表达式中使用这个值。
+
+1 CompletableFuture&lt;String&gt; completableFuture 
+2   = CompletableFuture.supplyAsync(() -&gt; &quot;Hello&quot;)
+3     .thenCompose(s -&gt; CompletableFuture.supplyAsync(() -&gt; s + &quot; World&quot;));
+4  
+5 assertEquals(&quot;Hello World&quot;, completableFuture.get());
+
+thenCompose()方法和thenApply()方法实现了构建单一模式的模版。他们特别像Java8中的Stream和Optional类中的map和flatMap方法。
+
+上面两个方法都接受一个函数，然后将其应用于计算结果。但是thenCompose(flatMap)方法接受一个与之相同类型的函数。这个函数的结构体允许组合这些类的实例成一个模块。
+
+如果你想执行两个独立的Futures，并且对他们的结果做一些操作，那么就可以使用thenCombine()方法，用它来接受一个Future，和一个带有两个参数的Funtion去处理两个Futures的结果。例如：
+
+1 CompletableFuture&lt;String&gt; completableFuture 
+2   = CompletableFuture.supplyAsync(() -&gt; &quot;Hello&quot;)
+3     .thenCombine(
+4                 CompletableFuture.supplyAsync(() -&gt; &quot; World&quot;), (s1, s2) -&gt; s1 + s2)
+5                  );
+6  
+7 assertEquals(&quot;Hello World&quot;, completableFuture.get());
+
+你想对两个Future的结果做一些操作，更为简单的例子是，不需要传递到Future chain中任何结果值。使用thenAcceptBoth()方法即可。
+
+1 CompletableFuture future = CompletableFuture.supplyAsync(() -&gt; &quot;Hello&quot;)
+2   .thenAcceptBoth(CompletableFuture.supplyAsync(() -&gt; &quot; World&quot;),
+3     (s1, s2) -&gt; System.out.println(s1 + s2));
+
+###7.thenApply()和thenCompose()之间的不同
+在我们前面的部分当中，我们展示了thenApply()和thenCompose()的使用方法。两个API被用在CompletableFuture调用链当中，但是这两者之间使用是不同的。
+
+####7.1 thenApply()
+这个方法被用来处理前一个调用的结果。然而，一个关键的点就是要记住，所有调用的返回值将会被组合。所以这个方法在我们想要转化一个CompletableFuture结果时是有用的。
+
+1 CompletableFuture&lt;Integer&gt; finalResult = compute().thenApply(s-&gt; s + 1);
+
+####7.2 thenCompose()
+这个方法和thenApply()类似都会返回一个新的执行阶段。thenCompose()使用前面的阶段作为参数。它将会打平并且返回一个带有结果的Future，而不是像thenApply()那样嵌套的结果。
+
+CompletableFuture computeAnother(Integer i){
+    return CompletableFuture.supplyAsync(() -&gt; 10 + i);
+}
+CompletableFuture finalResult = compute().thenCompose(this::computeAnother);
+所以要想对CompletableFuture方法以链的形式呈现，最好使用thenCompose()方法。另外注意，这两个方法之间的不同是和map() 与flatMap()之间的不同是类似的。
+
+###8.以并行的方式运行多个Futures
+当我们需要以并行的方式执行多个Futures时，我们通常想要等待他们所有执行完然后处理他们组合的结果。
+
+CompletableFuture的allOf静态方法允许等待所有Futures的完成。
+
+CompletableFuture future1  
+  = CompletableFuture.supplyAsync(() -&gt; "Hello");
+CompletableFuture future2  
+  = CompletableFuture.supplyAsync(() -&gt; "Beautiful");
+CompletableFuture future3  
+  = CompletableFuture.supplyAsync(() -&gt; "World");
+
+CompletableFuture combinedFuture 
+  = CompletableFuture.allOf(future1, future2, future3);
+
+combinedFuture.get();
+
+assertTrue(future1.isDone());
+assertTrue(future2.isDone());
+assertTrue(future3.isDone());
+注意，CompletableFuture.allOf() 的返回值是一个CompletableFuture 。这个方法的限制就在于他不能发挥所有Futures组合的结果。相反你不得不手动从Futures里获取结果。幸运的是CompletableFeature.join()方法和Java 8 Streams API让他变得更加简单：
+
+String combined = Stream.of(future1, future2, future3)
+  .map(CompletableFuture::join)
+  .collect(Collectors.joining(“ “));
+
+assertEquals(“Hello Beautiful World”, combined);
+CompletableFuture.join()方法与get()方法类似。但是当Future没有正常完成时，他会抛出一个异常。在Stream.map()方法中使用join使之成为可能。
+
+###9.处理错误
+对于异步计算过程中的错误处理，throw/catch常用方法是一个流行的趋势。
+
+相对于在语法块中捕获异常，CompletableFuture 允许你使用handle()方法去处理异常。这个方法接受两个参数：一个是计算结果（如果成功的话），一个是抛出的异常（如果计算过程中没有正常完成）。
+
+在下面的例子中，当异步运算因为没有提供name而异常结束时，我们使用handle()方法来获取一个默认值。
+
+String name = null;
+
+CompletableFuture completableFuture  
+  =  CompletableFuture.supplyAsync(() -&gt; {
+      if (name == null) {
+          throw new RuntimeException("Computation error!");
+      }
+      return "Hello, " + name;
+  })}).handle((s, t) -&gt; s != null ? s : "Hello, Stranger!");
+
+assertEquals(“Hello, Stranger!”, completableFuture.get());
+考虑另外一种场景，假设我们想手动结束一个带有返回值的Future，但是也有能力去处理异常，那么completeExceptionally()方法就很适合。下面的例子中completableFuture.get()方法抛出来一个RuntimeException
+
+CompletableFuture completableFuture = new CompletableFuture&lt;&gt;();
+
+completableFuture.completeExceptionally(
+  new RuntimeException(“Calculation failed!”));
+
+completableFuture.get(); // ExecutionException
+上面的例子中我们可以使用handle()方法处理异步异常，但是使用get()方法我们可以使用一个更为典型的异步异常处理方式。
+
+###10.异步方法
+CompletableFuture类的API中大部分都有两个以Async结尾的变种。这些方法通常是用于运行另一个线程的执行步骤。
+
+带有Async后缀的方法通过调用一个线程来执行下一个执行阶段。Async方法中没有使用Executor线程池参数的 会使用公共的fork/join线程池框架比如ForkJoinPool.commonPool()来执行。带有Executor参数的Async方法通过Executor线程池运行下一步。
+
+下面是一个使用Future实例处理计算结果过程的例子。这个唯一可见的不同之处是thenApplyAsync()方法。下面方法的一个参数应用是被修饰为ForkJoinTask实例。这样就允许你的计算可以并行执行，可以是你的系统资源更加有效。
+
+CompletableFuture completableFuture  
+  = CompletableFuture.supplyAsync(() -&gt; "Hello");
+
+CompletableFuture future = completableFuture
+  .thenApplyAsync(s -&gt; s + " World");
+
+assertEquals(“Hello World”, future.get());
+###11.总结
+这篇文章我们总结了CompletableFuture类的一些方法和常用的用法。源码见：
+
+https://github.com/eugenp/tutorials/tree/master/core-java-modules/core-java-concurrency-basic
+
+" />
+    
+    <meta name="author" content="blogs" />
+
+    
+    <meta property="og:title" content="【翻译】CompletableFuture初探" />
+    <meta property="twitter:title" content="【翻译】CompletableFuture初探" />
+    
+  <!-- Async font loading -->
+<script>
+  window.WebFontConfig = {
+      custom: {
+          families: ['Spoqa Han Sans:100,300,400,700'],
+          urls: ['https://spoqa.github.io/spoqa-han-sans/css/SpoqaHanSans-kr.css']
+      },
+      timeout: 60000
+  };
+  (function(d) {
+      var wf = d.createElement('script'), s = d.scripts[0];
+      wf.src = 'https://ajax.googleapis.com/ajax/libs/webfont/1.5.18/webfont.js';
+      s.parentNode.insertBefore(wf, s);
+  })(document);
+</script>
+
+<!--adobe fonts-->
+<script>
+    (function(d) {
+      var config = {
+        kitId: 'vbt3gjx',
+        scriptTimeout: 3000,
+        async: true
+      },
+      h=d.documentElement,t=setTimeout(function(){h.className=h.className.replace(/\bwf-loading\b/g,"")+" wf-inactive";},config.scriptTimeout),tk=d.createElement("script"),f=false,s=d.getElementsByTagName("script")[0],a;h.className+=" wf-loading";tk.src='https://use.typekit.net/'+config.kitId+'.js';tk.async=true;tk.onload=tk.onreadystatechange=function(){a=this.readyState;if(f||a&&a!="complete"&&a!="loaded")return;f=true;clearTimeout(t);try{Typekit.load(config)}catch(e){}};s.parentNode.insertBefore(tk,s)
+    })(document);
+</script> 
+
+  <!--[if lt IE 9]>
+    <script src="http://html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+  <![endif]-->
+
+  <link rel="stylesheet" type="text/css" href="//style.css" />
+  <link rel="alternate" type="application/rss+xml" title="blogs - yoyocheknow的博客" href="//feed.xml" />
+  <link rel="shortcut icon" href="https://raw.githubusercontent.com/FromEndWorld/LOFFER/master/images/favicon.png">
+  <script src="https://cdn.jsdelivr.net/npm/gitalk@1/dist/gitalk.min.js"></script>
+  <script src="https://unpkg.com/feather-icons"></script>
+  <script type="text/javascript" async
+  src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.1/MathJax.js?config=TeX-AMS-MML_HTMLorMML">
+  </script>
+  <script type="text/x-mathjax-config">
+    MathJax.Hub.Config({
+      tex2jax: {
+        skipTags: ['script', 'noscript', 'style', 'textarea', 'pre'],
+        inlineMath: [['$','$']]
+      }
+    });
+  </script>
+
+  <!-- Created with Jekyll Now - http://github.com/barryclark/jekyll-now -->
+
+</head>
+
+  <body>
+    <div class="wrapper-sidebar">
+  <header class="sidebar clearfix">
+    <div class="site-info">
+      
+        <a href="//" class="site-avatar"><img src="https://i.loli.net/2020/09/05/w19XjgKNCvtyGoQ.jpg" /></a>
+       
+      <h1 class="site-name"><a href="//">blogs</a></h1>
+      <p class="site-description">yoyocheknow的博客</p>
+    </div>
+  </header>
+
+  <div class="navlist">
+    <nav>
+      
+      
+      <a href="//">首页</a>
+      
+      
+      
+      <a href="//about">关于</a>
+      
+      
+      
+      <a href="//archive">归档</a>
+      
+      
+      
+      <a href="//tags">标签</a>
+      
+      
+    </nav>
+  </div>
+
+  <div class="wrapper-footer-desktop">
+    <footer class="footer">
+      <!-- Refer to https://codepen.io/ruandre/pen/howFi -->
+<ul class="svg-icon">
+
+  
+  
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+  <li><a href="https://github.com/FromEndWorld/loffer" class="icon-13 github" title="GitHub"><svg viewBox="0 0 512 512"><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6zm-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3zm44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9zM244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8zM97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1zm-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7zm32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1zm-11.4-14.7c-1.6 1-1.6 3.6 0 5.9 1.6 2.3 4.3 3.3 5.6 2.3 1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2z"/></svg><!--[if lt IE 9]><em>GitHub</em><![endif]--></a></li>
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+</ul>
+
+
+
+<p>Copyright (c) 2020 yoyocheknow</p>
+
+    </footer>
+  </div>
+</div>
+
+    
+
+    <div id="main" role="main" class="wrapper-content">
+      <div class="container">
+        <article class="posts">
+  <h1>【翻译】CompletableFuture初探</h1>
+
+  <div clsss="meta">
+    <span class="author">
+      yoyocheknow
+    </span>
+
+    <span class="date">
+      2020-09-05
+    </span>
+
+    <ul class="tag">
+      
+      <li>
+        <a href="//tags#Java">
+          Java
+        </a>
+      </li>
+      
+      <li>
+        <a href="//tags#译文">
+          译文
+        </a>
+      </li>
+      
+    </ul>
+  </div>
+
+  <div class="entry">
+    <p>翻译自https://www.baeldung.com/java-completablefuture</p>
+
+<p>###1.介绍<br />
+这篇文章主要介绍一下Java 8 Concurrency API 改进的类-CompletableFuture的一些基本功能和使用。</p>
+
+<p>###2.Java中的异步计算<br />
+异步计算是比较难以表述的，通常我们希望任何运算都是一步一步的，但是在异步运算的例子中，像callback回调这种行为通常会穿插在代码中，或者互相嵌套调用。当我们需要在其中的一个步骤处理可能会发生的异常时，事情会变得更加糟糕。</p>
+
+<p>Future接口是Java5添加用来处理异步运算的，但是Future并没有提供将异步运算和处理异常相结合的方法。</p>
+
+<p>在Java8，CompletableFuture类诞生了。它不仅实现了Future接口还实现了CompletionStage接口。CompletionStage接口定义了异步计算的步骤和其他步骤相结合的协议。</p>
+
+<p>CompetableFuture同时提供了composing,combining,执行异步运算任务，处理异常等50多种方法。</p>
+
+<p>虽然这样一个大的API是颠覆性的，但是这些大部分可以用几个清晰明了的case来演示。</p>
+
+<p>###3.使用CompletableFuture作为一个简单的Future<br />
+首先，CompletanbleFuture类是Future接口的一个实现，所以你可以不需要额外的实现逻辑使将它作为一个普通的Future使用。</p>
+
+<p>例如，你可以创建一个无参数构造方法的类实例来代表一些异步结果，通过消费者来调用处理，或者使用complete方法。消费者可以通过get方法来获取结果，但是在使用get方法时会被阻塞住直到异步的结果出来。</p>
+
+<p>下面的例子中，我们创建来一个CompletableFuture实例，接着在另一个线程中获取它的计算然后再立马返回Future。当计算完成时，通过Future提供的complete方法可以结束这个运算。</p>
+
+<div class="highlight"><pre><code class="language-ruby" data-lang="ruby"><span class="lineno"> 1</span> <span class="kp">public</span> <span class="no">Future</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span> <span class="n">calculateAsync</span><span class="p">()</span> <span class="n">throws</span> <span class="no">InterruptedException</span> <span class="p">{</span>
+<span class="lineno"> 2</span>     <span class="no">CompletableFuture</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span> <span class="n">completableFuture</span> 
+<span class="lineno"> 3</span>       <span class="o">=</span> <span class="kp">new</span> <span class="no">CompletableFuture</span><span class="o">&lt;&gt;</span><span class="p">();</span>
+<span class="lineno"> 4</span>  
+<span class="lineno"> 5</span>     <span class="no">Executors</span><span class="o">.</span><span class="n">newCachedThreadPool</span><span class="p">()</span><span class="o">.</span><span class="n">submit</span><span class="p">(()</span> <span class="o">-&gt;</span> <span class="p">{</span>
+<span class="lineno"> 6</span>         <span class="no">Thread</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="mi">500</span><span class="p">);</span>
+<span class="lineno"> 7</span>         <span class="n">completableFuture</span><span class="o">.</span><span class="n">complete</span><span class="p">(</span><span class="s2">&quot;Hello&quot;</span><span class="p">);</span>
+<span class="lineno"> 8</span>         <span class="k">return</span> <span class="n">null</span><span class="p">;</span>
+<span class="lineno"> 9</span>     <span class="p">});</span>
+<span class="lineno">10</span>  
+<span class="lineno">11</span>     <span class="k">return</span> <span class="n">completableFuture</span><span class="p">;</span>
+<span class="lineno">12</span> <span class="p">}</span>
+<span class="lineno">13</span> 
+<span class="lineno">14</span>  <span class="no">Future</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span> <span class="n">completableFuture</span> <span class="o">=</span> <span class="n">calculateAsync</span><span class="p">();</span>
+<span class="lineno">15</span>  <span class="nb">String</span> <span class="n">result</span> <span class="o">=</span> <span class="n">completableFuture</span><span class="o">.</span><span class="n">get</span><span class="p">();</span>
+<span class="lineno">16</span>  <span class="no">System</span><span class="o">.</span><span class="n">out</span><span class="o">.</span><span class="n">println</span><span class="p">(</span><span class="s2">&quot;result=&quot;</span><span class="o">+</span><span class="n">result</span><span class="p">);</span></code></pre></div>
+
+<p>结果：</p>
+
+<p>result=Hello<br />
+为了实现异步运算，我们使用Executor API来实现。但是CompletableFuture的创建和结束方法可以被任何并发机制或者包含原生线程的API使用。</p>
+
+<p>注意： calculateAsync( ）返回的是一个Future实例。</p>
+
+<p>我们可以简单地调用Future实例的get方法来获取结果，但是会block住。同时需要注意的是get()方法会抛出一些异常，比如在运行期间发生的异常：ExecutionException，当一个线程执行一个方法时被中断的异常：InterruptedException。</p>
+
+<p>如果你已经直到来计算的结果，你可以使用静态方法completedFuture()，带有一个参数代表它计算的一个结果。那么Future的get()方法将永远不会阻塞，相反会立马返回结果。</p>
+
+<div class="highlight"><pre><code class="language-ruby" data-lang="ruby"><span class="lineno">1</span> <span class="no">Future</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span> <span class="n">completableFuture</span> <span class="o">=</span> <span class="no">CompletableFuture</span><span class="o">.</span><span class="n">completedFuture</span><span class="p">(</span><span class="s2">&quot;Hello&quot;</span><span class="p">);</span>
+<span class="lineno">2</span> <span class="nb">String</span> <span class="n">result</span> <span class="o">=</span> <span class="n">completableFuture</span><span class="o">.</span><span class="n">get</span><span class="p">();</span>
+<span class="lineno">3</span> <span class="no">System</span><span class="o">.</span><span class="n">out</span><span class="o">.</span><span class="n">println</span><span class="p">(</span><span class="s2">&quot;result=&quot;</span><span class="o">+</span><span class="n">result</span><span class="p">);</span></code></pre></div>
+
+<p>结果：</p>
+
+<p>result=Hello<br />
+如果发生了另外一个场景，比如你想取消Future的执行。假设我们不想获取结果了，想要取消异步任务的执行，这个需求可以用Future的cancel()方法实现。这个方法会接受一个boolean参数mayInterruptIfRunning，但是在CompletableFuture中没有这个作用。因为对于CompletanleFuture来说不会使用中断来处理进程。</p>
+
+<p>下面是修改过的异步方法：</p>
+
+<div class="highlight"><pre><code class="language-ruby" data-lang="ruby"><span class="lineno"> 1</span> <span class="kp">public</span> <span class="no">Future</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span> <span class="n">calculateAsyncWithCancellation</span><span class="p">()</span> <span class="n">throws</span> <span class="no">InterruptedException</span> <span class="p">{</span>
+<span class="lineno"> 2</span>     <span class="no">CompletableFuture</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span> <span class="n">completableFuture</span> <span class="o">=</span> <span class="kp">new</span> <span class="no">CompletableFuture</span><span class="o">&lt;&gt;</span><span class="p">();</span>
+<span class="lineno"> 3</span>  
+<span class="lineno"> 4</span>     <span class="no">Executors</span><span class="o">.</span><span class="n">newCachedThreadPool</span><span class="p">()</span><span class="o">.</span><span class="n">submit</span><span class="p">(()</span> <span class="o">-&gt;</span> <span class="p">{</span>
+<span class="lineno"> 5</span>         <span class="no">Thread</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="mi">500</span><span class="p">);</span>
+<span class="lineno"> 6</span>         <span class="n">completableFuture</span><span class="o">.</span><span class="n">cancel</span><span class="p">(</span><span class="kp">false</span><span class="p">);</span>
+<span class="lineno"> 7</span>         <span class="k">return</span> <span class="n">null</span><span class="p">;</span>
+<span class="lineno"> 8</span>     <span class="p">});</span>
+<span class="lineno"> 9</span>  
+<span class="lineno">10</span>     <span class="k">return</span> <span class="n">completableFuture</span><span class="p">;</span>
+<span class="lineno">11</span> <span class="p">}</span></code></pre></div>
+
+<p>当我们使用Future的get()方法阻塞地去获取结果时，就会抛出CancellationException的异常/</p>
+
+<div class="highlight"><pre><code class="language-ruby" data-lang="ruby"><span class="lineno">1</span> <span class="no">Future</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span> <span class="n">future</span> <span class="o">=</span> <span class="n">calculateAsyncWithCancellation</span><span class="p">();</span>
+<span class="lineno">2</span> <span class="n">future</span><span class="o">.</span><span class="n">get</span><span class="p">();</span> <span class="sr">//</span> <span class="no">CancellationException</span></code></pre></div>
+
+<p>结果：</p>
+
+<div class="highlight"><pre><code class="language-ruby" data-lang="ruby"><span class="lineno">1</span> <span class="no">Exception</span> <span class="k">in</span> <span class="n">thread</span> <span class="s2">&quot;main&quot;</span> <span class="n">java</span><span class="o">.</span><span class="n">util</span><span class="o">.</span><span class="n">concurrent</span><span class="o">.</span><span class="n">CancellationException</span>
+<span class="lineno">2</span> 	<span class="n">at</span> <span class="n">java</span><span class="o">.</span><span class="n">base</span><span class="o">/</span><span class="n">java</span><span class="o">.</span><span class="n">util</span><span class="o">.</span><span class="n">concurrent</span><span class="o">.</span><span class="n">CompletableFuture</span><span class="o">.</span><span class="n">cancel</span><span class="p">(</span><span class="no">CompletableFuture</span><span class="o">.</span><span class="n">java</span><span class="p">:</span><span class="mi">2475</span><span class="p">)</span>
+<span class="lineno">3</span> 	<span class="n">at</span> <span class="n">main</span><span class="o">.</span><span class="n">java</span><span class="o">.</span><span class="n">com</span><span class="o">.</span><span class="n">yoyocheknow</span><span class="o">.</span><span class="n">java8</span><span class="o">.</span><span class="n">CompletableFutureTest</span><span class="o">.</span><span class="n">lambda</span><span class="vg">$calculateAsyncWithCancellation$6</span><span class="p">(</span><span class="no">CompletableFutureTest</span><span class="o">.</span><span class="n">java</span><span class="p">:</span><span class="mi">126</span><span class="p">)</span>
+<span class="lineno">4</span> 	<span class="n">at</span> <span class="n">java</span><span class="o">.</span><span class="n">base</span><span class="o">/</span><span class="n">java</span><span class="o">.</span><span class="n">util</span><span class="o">.</span><span class="n">concurrent</span><span class="o">.</span><span class="n">FutureTask</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="no">FutureTask</span><span class="o">.</span><span class="n">java</span><span class="p">:</span><span class="mi">264</span><span class="p">)</span>
+<span class="lineno">5</span> 	<span class="n">at</span> <span class="n">java</span><span class="o">.</span><span class="n">base</span><span class="o">/</span><span class="n">java</span><span class="o">.</span><span class="n">util</span><span class="o">.</span><span class="n">concurrent</span><span class="o">.</span><span class="n">ThreadPoolExecutor</span><span class="o">.</span><span class="n">runWorker</span><span class="p">(</span><span class="no">ThreadPoolExecutor</span><span class="o">.</span><span class="n">java</span><span class="p">:</span><span class="mi">1128</span><span class="p">)</span>
+<span class="lineno">6</span> 	<span class="n">at</span> <span class="n">java</span><span class="o">.</span><span class="n">base</span><span class="o">/</span><span class="n">java</span><span class="o">.</span><span class="n">util</span><span class="o">.</span><span class="n">concurrent</span><span class="o">.</span><span class="n">ThreadPoolExecutor</span><span class="vg">$Worker</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="no">ThreadPoolExecutor</span><span class="o">.</span><span class="n">java</span><span class="p">:</span><span class="mi">628</span><span class="p">)</span>
+<span class="lineno">7</span> 	<span class="n">at</span> <span class="n">java</span><span class="o">.</span><span class="n">base</span><span class="o">/</span><span class="n">java</span><span class="o">.</span><span class="n">lang</span><span class="o">.</span><span class="n">Thread</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="no">Thread</span><span class="o">.</span><span class="n">java</span><span class="p">:</span><span class="mi">830</span><span class="p">)</span></code></pre></div>
+
+<p>###4.CompletableFuture的封装方法<br />
+上面的代码我们都使用了并发的机制去执行的（比如使用线程池），但是如果我们想要跳过那些无用的模版方法仅仅是简单地异步执行一些code改如何做呢？</p>
+
+<p>静态方法例如：runAsync()和supplyAsync()，都允许我们创建一个CompletableFuture 实例，相应地都是Runnable和Supplier实例。</p>
+
+<p>由于Java8的新特性，Runnable和Suplier都允许通过lambda表达式传递他们的实例。</p>
+
+<p>Runnable接口和之前在线程中使用的老接口一样，它不允许有返回值。</p>
+
+<p>Supplier接口是一个没有参数的通用方法，它返回一个参数化的值。它允许我们通过传递一个lambda表达式作为一个Supplier实例，然后返回其结果。代码如下：</p>
+
+<div class="highlight"><pre><code class="language-ruby" data-lang="ruby"><span class="lineno">1</span> <span class="no">CompletableFuture</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span> <span class="n">future</span><span class="o">=</span> <span class="no">CompletableFuture</span><span class="o">.</span><span class="n">supplyAsync</span><span class="p">(()</span> <span class="o">-&gt;</span> <span class="s2">&quot;Hello&quot;</span><span class="p">);</span>
+<span class="lineno">2</span> <span class="n">assertEquals</span><span class="p">(</span><span class="s2">&quot;Hello&quot;</span><span class="p">,</span> <span class="n">future</span><span class="o">.</span><span class="n">get</span><span class="p">());</span></code></pre></div>
+
+<p>###5.处理异步计算结果<br />
+处理计算结果的最通用的办法是传入一个方法。thenApply()方法就可以做到：接受一个Function实例，使用它处理结果并且返回一个包含结果的Future。</p>
+
+<div class="highlight"><pre><code class="language-ruby" data-lang="ruby"><span class="lineno">1</span> <span class="no">CompletableFuture</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span> <span class="n">completableFuture</span>
+<span class="lineno">2</span>   <span class="o">=</span> <span class="no">CompletableFuture</span><span class="o">.</span><span class="n">supplyAsync</span><span class="p">(()</span> <span class="o">-&gt;</span> <span class="s2">&quot;Hello&quot;</span><span class="p">);</span>
+<span class="lineno">3</span>  
+<span class="lineno">4</span> <span class="no">CompletableFuture</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span> <span class="n">future</span> <span class="o">=</span> <span class="n">completableFuture</span>
+<span class="lineno">5</span>   <span class="o">.</span><span class="n">thenApply</span><span class="p">(</span><span class="n">s</span> <span class="o">-&gt;</span> <span class="n">s</span> <span class="o">+</span> <span class="s2">&quot; World&quot;</span><span class="p">);</span>
+<span class="lineno">6</span>  
+<span class="lineno">7</span> <span class="n">assertEquals</span><span class="p">(</span><span class="s2">&quot;Hello World&quot;</span><span class="p">,</span> <span class="n">future</span><span class="o">.</span><span class="n">get</span><span class="p">());</span></code></pre></div>
+
+<p>如果你不需要在Future链条下返回一个值，你可以使用Consumer方法接口的一个实例。它接受一个参数，但是不返回值。</p>
+
+<p>对于不需要返回值的情况，有一种方法可以供你选择-thenAccept()方法，它接受一个Consumer然后传递给她计算的结果，最终调用future.get()方法会返回空值。</p>
+
+<div class="highlight"><pre><code class="language-ruby" data-lang="ruby"><span class="lineno">1</span> <span class="no">CompletableFuture</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span> <span class="n">completableFuture</span>
+<span class="lineno">2</span>   <span class="o">=</span> <span class="no">CompletableFuture</span><span class="o">.</span><span class="n">supplyAsync</span><span class="p">(()</span> <span class="o">-&gt;</span> <span class="s2">&quot;Hello&quot;</span><span class="p">);</span>
+<span class="lineno">3</span>  
+<span class="lineno">4</span> <span class="no">CompletableFuture</span><span class="o">&lt;</span><span class="no">Void</span><span class="o">&gt;</span> <span class="n">future</span> <span class="o">=</span> <span class="n">completableFuture</span>
+<span class="lineno">5</span>   <span class="o">.</span><span class="n">thenAccept</span><span class="p">(</span><span class="n">s</span> <span class="o">-&gt;</span> <span class="no">System</span><span class="o">.</span><span class="n">out</span><span class="o">.</span><span class="n">println</span><span class="p">(</span><span class="s2">&quot;Computation returned: &quot;</span> <span class="o">+</span> <span class="n">s</span><span class="p">));</span>
+<span class="lineno">6</span>  
+<span class="lineno">7</span>  <span class="no">System</span><span class="o">.</span><span class="n">out</span><span class="o">.</span><span class="n">print</span><span class="p">(</span><span class="s2">&quot;result=&quot;</span><span class="o">+</span><span class="n">future</span><span class="o">.</span><span class="n">get</span><span class="p">());</span></code></pre></div>
+
+<p>输出：</p>
+
+<div class="highlight"><pre><code class="language-ruby" data-lang="ruby"><span class="lineno">1</span> <span class="no">Computation</span> <span class="ss">returned</span><span class="p">:</span> <span class="no">Hello</span>
+<span class="lineno">2</span> <span class="n">result</span><span class="o">=</span><span class="n">null</span></code></pre></div>
+
+<p>最后，如果你既不需要计算返回的值也不想要在最后获取返回，那么那你可以传递一个Runnable lambda表达式给thenRun()方法。在下面这个离职中，future.get()方法调用后，我们仅仅打印在控制台。</p>
+
+<div class="highlight"><pre><code class="language-ruby" data-lang="ruby"><span class="lineno">1</span> <span class="no">CompletableFuture</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span> <span class="n">completableFuture</span> 
+<span class="lineno">2</span>   <span class="o">=</span> <span class="no">CompletableFuture</span><span class="o">.</span><span class="n">supplyAsync</span><span class="p">(()</span> <span class="o">-&gt;</span> <span class="s2">&quot;Hello&quot;</span><span class="p">);</span>
+<span class="lineno">3</span>  
+<span class="lineno">4</span> <span class="no">CompletableFuture</span><span class="o">&lt;</span><span class="no">Void</span><span class="o">&gt;</span> <span class="n">future</span> <span class="o">=</span> <span class="n">completableFuture</span>
+<span class="lineno">5</span>   <span class="o">.</span><span class="n">thenRun</span><span class="p">(()</span> <span class="o">-&gt;</span> <span class="no">System</span><span class="o">.</span><span class="n">out</span><span class="o">.</span><span class="n">println</span><span class="p">(</span><span class="s2">&quot;Computation finished.&quot;</span><span class="p">));</span>
+<span class="lineno">6</span>  
+<span class="lineno">7</span> <span class="no">System</span><span class="o">.</span><span class="n">out</span><span class="o">.</span><span class="n">print</span><span class="p">(</span><span class="s2">&quot;result=&quot;</span><span class="o">+</span><span class="n">future</span><span class="o">.</span><span class="n">get</span><span class="p">());</span></code></pre></div>
+
+<p>输出：</p>
+
+<p>Computation finished.<br />
+result=null<br />
+###6.合并特性<br />
+CompletableFuture API最好的功能就是在计算步骤的链条当中，合并CompletableFuture实例的能力。</p>
+
+<p>CompletableFuture 链的结果就是允许成链和组合的能力，这种方式在编程语言当中是独一无二的。并且经常用来作为单一职责设计模式。</p>
+
+<p>下面的例子种我们使用thenCompose()方法来依次合并两个Futures。注意，这个方法返回一个CompletableFuture实例。这个方法的参数是上一个计算步骤的结果。这样就允许我们在下一个CompletableFuture的lambda表达式中使用这个值。</p>
+
+<div class="highlight"><pre><code class="language-ruby" data-lang="ruby"><span class="lineno">1</span> <span class="no">CompletableFuture</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span> <span class="n">completableFuture</span> 
+<span class="lineno">2</span>   <span class="o">=</span> <span class="no">CompletableFuture</span><span class="o">.</span><span class="n">supplyAsync</span><span class="p">(()</span> <span class="o">-&gt;</span> <span class="s2">&quot;Hello&quot;</span><span class="p">)</span>
+<span class="lineno">3</span>     <span class="o">.</span><span class="n">thenCompose</span><span class="p">(</span><span class="n">s</span> <span class="o">-&gt;</span> <span class="no">CompletableFuture</span><span class="o">.</span><span class="n">supplyAsync</span><span class="p">(()</span> <span class="o">-&gt;</span> <span class="n">s</span> <span class="o">+</span> <span class="s2">&quot; World&quot;</span><span class="p">));</span>
+<span class="lineno">4</span>  
+<span class="lineno">5</span> <span class="n">assertEquals</span><span class="p">(</span><span class="s2">&quot;Hello World&quot;</span><span class="p">,</span> <span class="n">completableFuture</span><span class="o">.</span><span class="n">get</span><span class="p">());</span></code></pre></div>
+
+<p>thenCompose()方法和thenApply()方法实现了构建单一模式的模版。他们特别像Java8中的Stream和Optional类中的map和flatMap方法。</p>
+
+<p>上面两个方法都接受一个函数，然后将其应用于计算结果。但是thenCompose(flatMap)方法接受一个与之相同类型的函数。这个函数的结构体允许组合这些类的实例成一个模块。</p>
+
+<p>如果你想执行两个独立的Futures，并且对他们的结果做一些操作，那么就可以使用thenCombine()方法，用它来接受一个Future，和一个带有两个参数的Funtion去处理两个Futures的结果。例如：</p>
+
+<div class="highlight"><pre><code class="language-ruby" data-lang="ruby"><span class="lineno">1</span> <span class="no">CompletableFuture</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span> <span class="n">completableFuture</span> 
+<span class="lineno">2</span>   <span class="o">=</span> <span class="no">CompletableFuture</span><span class="o">.</span><span class="n">supplyAsync</span><span class="p">(()</span> <span class="o">-&gt;</span> <span class="s2">&quot;Hello&quot;</span><span class="p">)</span>
+<span class="lineno">3</span>     <span class="o">.</span><span class="n">thenCombine</span><span class="p">(</span>
+<span class="lineno">4</span>                 <span class="no">CompletableFuture</span><span class="o">.</span><span class="n">supplyAsync</span><span class="p">(()</span> <span class="o">-&gt;</span> <span class="s2">&quot; World&quot;</span><span class="p">),</span> <span class="p">(</span><span class="n">s1</span><span class="p">,</span> <span class="n">s2</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">s1</span> <span class="o">+</span> <span class="n">s2</span><span class="p">)</span>
+<span class="lineno">5</span>                  <span class="p">);</span>
+<span class="lineno">6</span>  
+<span class="lineno">7</span> <span class="n">assertEquals</span><span class="p">(</span><span class="s2">&quot;Hello World&quot;</span><span class="p">,</span> <span class="n">completableFuture</span><span class="o">.</span><span class="n">get</span><span class="p">());</span></code></pre></div>
+
+<p>你想对两个Future的结果做一些操作，更为简单的例子是，不需要传递到Future chain中任何结果值。使用thenAcceptBoth()方法即可。</p>
+
+<div class="highlight"><pre><code class="language-ruby" data-lang="ruby"><span class="lineno">1</span> <span class="no">CompletableFuture</span> <span class="n">future</span> <span class="o">=</span> <span class="no">CompletableFuture</span><span class="o">.</span><span class="n">supplyAsync</span><span class="p">(()</span> <span class="o">-&gt;</span> <span class="s2">&quot;Hello&quot;</span><span class="p">)</span>
+<span class="lineno">2</span>   <span class="o">.</span><span class="n">thenAcceptBoth</span><span class="p">(</span><span class="no">CompletableFuture</span><span class="o">.</span><span class="n">supplyAsync</span><span class="p">(()</span> <span class="o">-&gt;</span> <span class="s2">&quot; World&quot;</span><span class="p">),</span>
+<span class="lineno">3</span>     <span class="p">(</span><span class="n">s1</span><span class="p">,</span> <span class="n">s2</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="no">System</span><span class="o">.</span><span class="n">out</span><span class="o">.</span><span class="n">println</span><span class="p">(</span><span class="n">s1</span> <span class="o">+</span> <span class="n">s2</span><span class="p">));</span></code></pre></div>
+
+<p>###7.thenApply()和thenCompose()之间的不同<br />
+在我们前面的部分当中，我们展示了thenApply()和thenCompose()的使用方法。两个API被用在CompletableFuture调用链当中，但是这两者之间使用是不同的。</p>
+
+<p>####7.1 thenApply()<br />
+这个方法被用来处理前一个调用的结果。然而，一个关键的点就是要记住，所有调用的返回值将会被组合。所以这个方法在我们想要转化一个CompletableFuture结果时是有用的。</p>
+
+<div class="highlight"><pre><code class="language-ruby" data-lang="ruby"><span class="lineno">1</span> <span class="no">CompletableFuture</span><span class="o">&lt;</span><span class="nb">Integer</span><span class="o">&gt;</span> <span class="n">finalResult</span> <span class="o">=</span> <span class="n">compute</span><span class="p">()</span><span class="o">.</span><span class="n">thenApply</span><span class="p">(</span><span class="n">s</span><span class="o">-&gt;</span> <span class="n">s</span> <span class="o">+</span> <span class="mi">1</span><span class="p">);</span></code></pre></div>
+
+<p>####7.2 thenCompose()<br />
+这个方法和thenApply()类似都会返回一个新的执行阶段。thenCompose()使用前面的阶段作为参数。它将会打平并且返回一个带有结果的Future，而不是像thenApply()那样嵌套的结果。</p>
+
+<p>CompletableFuture<Integer> computeAnother(Integer i){
+    return CompletableFuture.supplyAsync(() -&gt; 10 + i);
+}
+CompletableFuture<Integer> finalResult = compute().thenCompose(this::computeAnother);
+所以要想对CompletableFuture方法以链的形式呈现，最好使用thenCompose()方法。另外注意，这两个方法之间的不同是和map() 与flatMap()之间的不同是类似的。</Integer></Integer></p>
+
+<p>###8.以并行的方式运行多个Futures<br />
+当我们需要以并行的方式执行多个Futures时，我们通常想要等待他们所有执行完然后处理他们组合的结果。</p>
+
+<p>CompletableFuture的allOf静态方法允许等待所有Futures的完成。</p>
+
+<p>CompletableFuture<String> future1  
+  = CompletableFuture.supplyAsync(() -&gt; "Hello");
+CompletableFuture<String> future2  
+  = CompletableFuture.supplyAsync(() -&gt; "Beautiful");
+CompletableFuture<String> future3  
+  = CompletableFuture.supplyAsync(() -&gt; "World");</String></String></String></p>
+
+<p>CompletableFuture<Void> combinedFuture 
+  = CompletableFuture.allOf(future1, future2, future3);</Void></p>
+
+<p>combinedFuture.get();</p>
+
+<p>assertTrue(future1.isDone());<br />
+assertTrue(future2.isDone());<br />
+assertTrue(future3.isDone());<br />
+注意，CompletableFuture.allOf() 的返回值是一个CompletableFuture<Void> 。这个方法的限制就在于他不能发挥所有Futures组合的结果。相反你不得不手动从Futures里获取结果。幸运的是CompletableFeature.join()方法和Java 8 Streams API让他变得更加简单：</Void></p>
+
+<p>String combined = Stream.of(future1, future2, future3)<br />
+  .map(CompletableFuture::join)<br />
+  .collect(Collectors.joining(“ “));</p>
+
+<p>assertEquals(“Hello Beautiful World”, combined);<br />
+CompletableFuture.join()方法与get()方法类似。但是当Future没有正常完成时，他会抛出一个异常。在Stream.map()方法中使用join使之成为可能。</p>
+
+<p>###9.处理错误<br />
+对于异步计算过程中的错误处理，throw/catch常用方法是一个流行的趋势。</p>
+
+<p>相对于在语法块中捕获异常，CompletableFuture 允许你使用handle()方法去处理异常。这个方法接受两个参数：一个是计算结果（如果成功的话），一个是抛出的异常（如果计算过程中没有正常完成）。</p>
+
+<p>在下面的例子中，当异步运算因为没有提供name而异常结束时，我们使用handle()方法来获取一个默认值。</p>
+
+<p>String name = null;</p>
+
+<p>CompletableFuture<String> completableFuture  
+  =  CompletableFuture.supplyAsync(() -&gt; {
+      if (name == null) {
+          throw new RuntimeException("Computation error!");
+      }
+      return "Hello, " + name;
+  })}).handle((s, t) -&gt; s != null ? s : "Hello, Stranger!");</String></p>
+
+<p>assertEquals(“Hello, Stranger!”, completableFuture.get());<br />
+考虑另外一种场景，假设我们想手动结束一个带有返回值的Future，但是也有能力去处理异常，那么completeExceptionally()方法就很适合。下面的例子中completableFuture.get()方法抛出来一个RuntimeException</p>
+
+<p>CompletableFuture<String> completableFuture = new CompletableFuture&lt;&gt;();</String></p>
+
+<p>completableFuture.completeExceptionally(<br />
+  new RuntimeException(“Calculation failed!”));</p>
+
+<p>completableFuture.get(); // ExecutionException<br />
+上面的例子中我们可以使用handle()方法处理异步异常，但是使用get()方法我们可以使用一个更为典型的异步异常处理方式。</p>
+
+<p>###10.异步方法<br />
+CompletableFuture类的API中大部分都有两个以Async结尾的变种。这些方法通常是用于运行另一个线程的执行步骤。</p>
+
+<p>带有Async后缀的方法通过调用一个线程来执行下一个执行阶段。Async方法中没有使用Executor线程池参数的 会使用公共的fork/join线程池框架比如ForkJoinPool.commonPool()来执行。带有Executor参数的Async方法通过Executor线程池运行下一步。</p>
+
+<p>下面是一个使用Future实例处理计算结果过程的例子。这个唯一可见的不同之处是thenApplyAsync()方法。下面方法的一个参数应用是被修饰为ForkJoinTask实例。这样就允许你的计算可以并行执行，可以是你的系统资源更加有效。</p>
+
+<p>CompletableFuture<String> completableFuture  
+  = CompletableFuture.supplyAsync(() -&gt; "Hello");</String></p>
+
+<p>CompletableFuture<String> future = completableFuture
+  .thenApplyAsync(s -&gt; s + " World");</String></p>
+
+<p>assertEquals(“Hello World”, future.get());<br />
+###11.总结<br />
+这篇文章我们总结了CompletableFuture类的一些方法和常用的用法。源码见：</p>
+
+<p>https://github.com/eugenp/tutorials/tree/master/core-java-modules/core-java-concurrency-basic</p>
+
+
+  </div>
+
+  
+<div class="comments">
+	<div id="disqus_thread"></div>
+	<script type="text/javascript">
+
+	    var disqus_shortname = 'loffer';
+
+	    (function() {
+	        var dsq = document.createElement('script'); dsq.type = 'text/javascript'; dsq.async = true;
+	        dsq.src = '//' + disqus_shortname + '.disqus.com/embed.js';
+	        (document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(dsq);
+	    })();
+
+	</script>
+	<noscript>Please enable JavaScript to view the <a href="http://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+</div>
+
+  
+<script src="https://utteranc.es/client.js"
+        repo=""
+        issue-term=""
+        label=""
+        theme=""
+        crossorigin=""
+        async>
+</script>
+
+
+  
+</article>
+
+<div class="pagination">
+  
+    <span class="prev" >
+      <a href="//math-test/">
+        ← 上一篇
+      </a>
+    </span>
+  
+  
+</div>
+      </div>
+    </div>
+
+    
+
+  </body>
+
+  
+
+  <div class="wrapper-footer-mobile">
+    <footer class="footer">
+      <!-- Refer to https://codepen.io/ruandre/pen/howFi -->
+<ul class="svg-icon">
+
+  
+  
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+  <li><a href="https://github.com/FromEndWorld/loffer" class="icon-13 github" title="GitHub"><svg viewBox="0 0 512 512"><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6zm-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3zm44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9zM244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8zM97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1zm-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7zm32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1zm-11.4-14.7c-1.6 1-1.6 3.6 0 5.9 1.6 2.3 4.3 3.3 5.6 2.3 1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2z"/></svg><!--[if lt IE 9]><em>GitHub</em><![endif]--></a></li>
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+</ul>
+
+
+
+<p>Copyright (c) 2020 yoyocheknow</p>
+
+    </footer>
+
+
+</html>
