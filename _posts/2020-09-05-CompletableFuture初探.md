@@ -5,7 +5,6 @@ date: 2020-09-05
 author: yoyocheknow
 tags: [Java, 译文]
 comments: true
-toc: true
 pinned: true
 ---
 翻译自https://www.baeldung.com/java-completablefuture
