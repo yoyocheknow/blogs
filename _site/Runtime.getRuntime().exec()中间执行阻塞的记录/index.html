@@ -1,0 +1,810 @@
+<!DOCTYPE html>
+<html>
+  <head>
+  <title>Runtime.getRuntime().exec()中间执行阻塞的记录 – blogs – yoyocheknow的博客</title>
+
+      <meta charset="utf-8" />
+    <meta content='text/html; charset=utf-8' http-equiv='Content-Type'>
+    <meta http-equiv='X-UA-Compatible' content='IE=edge'>
+    <meta name='viewport' content='width=device-width, initial-scale=1.0, maximum-scale=1.0'>
+
+    
+    <meta name="description" content="Runtime.getRuntime().exec() 中间执行阻塞的记录
+
+
+  背景：我们正在做一个专属化打包平台，会调用Android 和iOS 的python脚本执行打包命令。但是在执行Android 的python打包脚本时，中间会莫名其妙的阻塞。
+
+
+先来看一下一开始写的代码：
+
+public static void executePython(String path,String logPath,String taskId) {
+
+        Process proc;
+        StringBuffer stringBuffer = new StringBuffer();
+        try {
+            String[] args = new String[] { "python3", path, taskId };
+            log.info("python commends: python ,path: {},taskId: {}",path,taskId);
+            proc = Runtime.getRuntime().exec(args);// 执行py文件
+            log.info("proc:"+proc);
+
+						//用输入输出流来截取结果
+            BufferedReader in = new BufferedReader(new InputStreamReader(proc.getInputStream()));
+            BufferedReader stderr = new BufferedReader(new InputStreamReader(proc.getErrorStream()));
+            String line;
+            while ((line=in.readLine()) != null) {
+                System.out.println("来自python脚本："+line);
+                stringBuffer.append(line);
+                stringBuffer.append("\n");
+            }
+            while ((line = stderr.readLine()) != null)
+            {
+                System.out.println("来自python脚本："+ line);
+                stringBuffer.append(line);
+                stringBuffer.append("\n");
+            }
+
+            in.close();
+            stderr.close();
+            proc.waitFor();
+        } catch (Exception e) {
+            log.info("执行python脚本异常 :",e);
+            throw new Exception("执行python脚本异常", e.getMessage());
+        }
+
+        FileWriter writer;
+        try {
+            writer = new FileWriter(logPath);
+            writer.write(String.valueOf(stringBuffer));
+            writer.flush();
+            writer.close();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+
+    }
+
+
+通过Runtime.getRuntime().exec 执行python脚本，然后获取proc返回的日志流并记录在文件中。但是在调用Android的python打包脚本时，中间会阻塞。
+
+我在排查原因时走了很多弯路。因为这段代码在执行 IOS的打包脚本时是没有问题的，只要执行Android的打包脚本就会中间阻塞。而且IOS打包脚本输出的日志要大的多，最终的日志大小有100多M，而Android的要小的多，大约10多M。然后为了排除这个原因，我就把获取proc的输入流取消掉，即不接受子进程的日志。代码变成下面这个样子：
+
+public static void executePython(String path,String logPath,String taskId) {
+
+        Process proc;
+        StringBuffer stringBuffer = new StringBuffer();
+        try {
+            String[] args = new String[] { "python3", path, taskId };
+            log.info("python commends: python ,path: {},taskId: {}",path,taskId);
+            proc = Runtime.getRuntime().exec(args);// 执行py文件
+            log.info("proc:"+proc);
+            proc.waitFor();
+        } catch (Exception e) {
+            log.info("执行python脚本异常 :",e);
+            throw new ECRemoteServiceException("执行python脚本异常", e.getMessage());
+        }
+
+    }
+
+
+但是依然中间会阻塞住。
+
+然后我们从内存的角度来看一下运行的过程，通过jstack查看堆栈信息，如下图所示：
+
+
+
+从上面看出，第一个线程是执行python脚本的线程，处于runable状态，第二个线程是获取process的inputStream流信息，也是处于runnable状态，这么看并没有任何问题。下面看一下堆内存的使用情况：
+
+
+
+虽然处于上升状态，但依然没有超过最大堆内存。所以也没有什么问题。
+
+
+  
+    
+      但是后来想到，这个堆内存使用信息是打包平台服务的内存使用情况，并不能体现出打包脚本的内存使用（因为Android打包脚本 也是java服务）。通过“ps -ef
+      grep java” 查看一下：
+    
+  
+
+
+
+
+
+
+可以看到打包脚本的内存占用是3.5个G，打包脚本的最大堆内存设置的是5个G。到这里依然没有发现是什么原因。
+
+但是有一个奇怪现象是，本来我的代码中是想着实时获取打包脚本的日志流，并放在一个BufferReader里面，打包完成后再写入到本地的文件，但是中间执行过程中始终没有日志输出，当卡了好久，把打包线程终止后，日志才花花地输出。
+
+下面我们看一下process具体是个什么东西？
+
+
+  The ProcessBuilder.start() and Runtime.exec methods create a native process and return an instance of a subclass of Process that can be used to control the process and obtain information about it. The class Process provides methods for performing input from the process, performing output to the process, waiting for the process to complete, checking the exit status of the process, and destroying (killing) the process.
+
+
+Runtime.exec 方法会创建一个本地的进程，并返回子进程的一个process实例，通过这个process实例可以控制这个子进程，或者获取关于子进程的信息。Process类提供了获取子进程input，output的方法，等待子进程执行成功，检查子进程存在状态，销毁子进程的方法。
+
+
+  By default, the created subprocess does not have its own terminal or console. All its standard I/O (i.e. stdin, stdout, stderr) operations will be redirected to the parent process, where they can be accessed via the streams obtained using the methods getOutputStream(), getInputStream(), and getErrorStream(). The parent process uses these streams to feed input to and get output from the subprocess. Because some native platforms only provide limited buffer size for standard input and output streams, failure to promptly write the input stream or read the output stream of the subprocess may cause the subprocess to block, or even deadlock.
+
+
+创建的子进程没有自己terminal或者控制台输出，它所有的标准I/O流（比如stdin，stout，stderr）操作将会被重定向到父进程。这些流可以通过getOutputStream()， getInputStream()， getErrorStream()方法来获取。所以父进程可以通过这些stream来获取子进程的input和output。因为一些本地的平台为标准的输入输出流只提供了有限的buffer size，所以如果不能及时地写入input流或者读取output流会导致 子进程阻塞甚至死锁。
+
+以上是JDK中对Process类的描述。关键的一句话就是“要及时的读取或者写入 子进程的输出或者输入流，否则就会因为buffer size 有限而导致子进程阻塞”。从这句话基本就可以定位为什么上面的程序在执行脚本时中间会卡住。
+
+很明显子进程打包脚本的日志是一直在内存里的，当进程销毁时，才输出出来。然后查看process的定义，发现果然如此。子进程的日志是一直写入在内存缓冲区的，需要消费掉，才不会导致阻塞。那么我们就新起一个子线程来专门消费这个日志流。代码如下所示：
+
+public class JavaExecutePythonUtils {
+
+    static ExecutorService executor = Executors.newFixedThreadPool(20);
+    public static void executePython(String path,String logPath,String taskId) {
+
+        Process proc;
+        try {
+            String[] args = new String[] { "python3", path, taskId };
+            log.info("python commends: python ,path: {},taskId: {}",path,taskId);
+            proc = Runtime.getRuntime().exec(args);// 执行py文件
+            log.info("proc:"+proc);
+
+            new Thread(new OutputHandlerRunnable(proc.getInputStream())).start();
+            new Thread(new OutputHandlerRunnable(proc.getErrorStream())).start();
+
+          
+        } catch (Exception e) {
+            log.info("执行python脚本异常 :",e);
+            throw new ECRemoteServiceException("执行python脚本异常", e.getMessage());
+        }
+    }
+
+    @Data
+    @AllArgsConstructor
+    private static class OutputHandlerRunnable implements Runnable {
+        private InputStream in;
+
+        @Override
+        public void run() {
+            try (BufferedReader bufr = new BufferedReader(new InputStreamReader(this.in))) {
+                String line = null;
+                while ((line = bufr.readLine()) != null) {
+                    System.out.println("来自python脚本："+line);
+                }
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+
+
+        }
+    }
+}
+
+
+可以发现，打包脚本日志可以实时输出在控制台了，而且也打包成功了，再也不阻塞了。
+
+总结：
+
+其实，源码已经给了我答案，但是由于第一次安卓是打包成功的，然后又觉得后面不读取process的输出流就规避了I/O的问题，但是因为理解的偏差，没有发现原因所在。还有一个误导我的点是，IOS的打包脚本可以成功。不存在这个阻塞的问题。这个我依然没有搞明白是为什么，既然都是开辟了新的子线程，那么就跟我本地的Java服务没有关系了，为什么安卓的就不行呢？请大佬们点拨一下。
+
+" />
+    <meta property="og:description" content="Runtime.getRuntime().exec() 中间执行阻塞的记录
+
+
+  背景：我们正在做一个专属化打包平台，会调用Android 和iOS 的python脚本执行打包命令。但是在执行Android 的python打包脚本时，中间会莫名其妙的阻塞。
+
+
+先来看一下一开始写的代码：
+
+public static void executePython(String path,String logPath,String taskId) {
+
+        Process proc;
+        StringBuffer stringBuffer = new StringBuffer();
+        try {
+            String[] args = new String[] { "python3", path, taskId };
+            log.info("python commends: python ,path: {},taskId: {}",path,taskId);
+            proc = Runtime.getRuntime().exec(args);// 执行py文件
+            log.info("proc:"+proc);
+
+						//用输入输出流来截取结果
+            BufferedReader in = new BufferedReader(new InputStreamReader(proc.getInputStream()));
+            BufferedReader stderr = new BufferedReader(new InputStreamReader(proc.getErrorStream()));
+            String line;
+            while ((line=in.readLine()) != null) {
+                System.out.println("来自python脚本："+line);
+                stringBuffer.append(line);
+                stringBuffer.append("\n");
+            }
+            while ((line = stderr.readLine()) != null)
+            {
+                System.out.println("来自python脚本："+ line);
+                stringBuffer.append(line);
+                stringBuffer.append("\n");
+            }
+
+            in.close();
+            stderr.close();
+            proc.waitFor();
+        } catch (Exception e) {
+            log.info("执行python脚本异常 :",e);
+            throw new Exception("执行python脚本异常", e.getMessage());
+        }
+
+        FileWriter writer;
+        try {
+            writer = new FileWriter(logPath);
+            writer.write(String.valueOf(stringBuffer));
+            writer.flush();
+            writer.close();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+
+    }
+
+
+通过Runtime.getRuntime().exec 执行python脚本，然后获取proc返回的日志流并记录在文件中。但是在调用Android的python打包脚本时，中间会阻塞。
+
+我在排查原因时走了很多弯路。因为这段代码在执行 IOS的打包脚本时是没有问题的，只要执行Android的打包脚本就会中间阻塞。而且IOS打包脚本输出的日志要大的多，最终的日志大小有100多M，而Android的要小的多，大约10多M。然后为了排除这个原因，我就把获取proc的输入流取消掉，即不接受子进程的日志。代码变成下面这个样子：
+
+public static void executePython(String path,String logPath,String taskId) {
+
+        Process proc;
+        StringBuffer stringBuffer = new StringBuffer();
+        try {
+            String[] args = new String[] { "python3", path, taskId };
+            log.info("python commends: python ,path: {},taskId: {}",path,taskId);
+            proc = Runtime.getRuntime().exec(args);// 执行py文件
+            log.info("proc:"+proc);
+            proc.waitFor();
+        } catch (Exception e) {
+            log.info("执行python脚本异常 :",e);
+            throw new ECRemoteServiceException("执行python脚本异常", e.getMessage());
+        }
+
+    }
+
+
+但是依然中间会阻塞住。
+
+然后我们从内存的角度来看一下运行的过程，通过jstack查看堆栈信息，如下图所示：
+
+
+
+从上面看出，第一个线程是执行python脚本的线程，处于runable状态，第二个线程是获取process的inputStream流信息，也是处于runnable状态，这么看并没有任何问题。下面看一下堆内存的使用情况：
+
+
+
+虽然处于上升状态，但依然没有超过最大堆内存。所以也没有什么问题。
+
+
+  
+    
+      但是后来想到，这个堆内存使用信息是打包平台服务的内存使用情况，并不能体现出打包脚本的内存使用（因为Android打包脚本 也是java服务）。通过“ps -ef
+      grep java” 查看一下：
+    
+  
+
+
+
+
+
+
+可以看到打包脚本的内存占用是3.5个G，打包脚本的最大堆内存设置的是5个G。到这里依然没有发现是什么原因。
+
+但是有一个奇怪现象是，本来我的代码中是想着实时获取打包脚本的日志流，并放在一个BufferReader里面，打包完成后再写入到本地的文件，但是中间执行过程中始终没有日志输出，当卡了好久，把打包线程终止后，日志才花花地输出。
+
+下面我们看一下process具体是个什么东西？
+
+
+  The ProcessBuilder.start() and Runtime.exec methods create a native process and return an instance of a subclass of Process that can be used to control the process and obtain information about it. The class Process provides methods for performing input from the process, performing output to the process, waiting for the process to complete, checking the exit status of the process, and destroying (killing) the process.
+
+
+Runtime.exec 方法会创建一个本地的进程，并返回子进程的一个process实例，通过这个process实例可以控制这个子进程，或者获取关于子进程的信息。Process类提供了获取子进程input，output的方法，等待子进程执行成功，检查子进程存在状态，销毁子进程的方法。
+
+
+  By default, the created subprocess does not have its own terminal or console. All its standard I/O (i.e. stdin, stdout, stderr) operations will be redirected to the parent process, where they can be accessed via the streams obtained using the methods getOutputStream(), getInputStream(), and getErrorStream(). The parent process uses these streams to feed input to and get output from the subprocess. Because some native platforms only provide limited buffer size for standard input and output streams, failure to promptly write the input stream or read the output stream of the subprocess may cause the subprocess to block, or even deadlock.
+
+
+创建的子进程没有自己terminal或者控制台输出，它所有的标准I/O流（比如stdin，stout，stderr）操作将会被重定向到父进程。这些流可以通过getOutputStream()， getInputStream()， getErrorStream()方法来获取。所以父进程可以通过这些stream来获取子进程的input和output。因为一些本地的平台为标准的输入输出流只提供了有限的buffer size，所以如果不能及时地写入input流或者读取output流会导致 子进程阻塞甚至死锁。
+
+以上是JDK中对Process类的描述。关键的一句话就是“要及时的读取或者写入 子进程的输出或者输入流，否则就会因为buffer size 有限而导致子进程阻塞”。从这句话基本就可以定位为什么上面的程序在执行脚本时中间会卡住。
+
+很明显子进程打包脚本的日志是一直在内存里的，当进程销毁时，才输出出来。然后查看process的定义，发现果然如此。子进程的日志是一直写入在内存缓冲区的，需要消费掉，才不会导致阻塞。那么我们就新起一个子线程来专门消费这个日志流。代码如下所示：
+
+public class JavaExecutePythonUtils {
+
+    static ExecutorService executor = Executors.newFixedThreadPool(20);
+    public static void executePython(String path,String logPath,String taskId) {
+
+        Process proc;
+        try {
+            String[] args = new String[] { "python3", path, taskId };
+            log.info("python commends: python ,path: {},taskId: {}",path,taskId);
+            proc = Runtime.getRuntime().exec(args);// 执行py文件
+            log.info("proc:"+proc);
+
+            new Thread(new OutputHandlerRunnable(proc.getInputStream())).start();
+            new Thread(new OutputHandlerRunnable(proc.getErrorStream())).start();
+
+          
+        } catch (Exception e) {
+            log.info("执行python脚本异常 :",e);
+            throw new ECRemoteServiceException("执行python脚本异常", e.getMessage());
+        }
+    }
+
+    @Data
+    @AllArgsConstructor
+    private static class OutputHandlerRunnable implements Runnable {
+        private InputStream in;
+
+        @Override
+        public void run() {
+            try (BufferedReader bufr = new BufferedReader(new InputStreamReader(this.in))) {
+                String line = null;
+                while ((line = bufr.readLine()) != null) {
+                    System.out.println("来自python脚本："+line);
+                }
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+
+
+        }
+    }
+}
+
+
+可以发现，打包脚本日志可以实时输出在控制台了，而且也打包成功了，再也不阻塞了。
+
+总结：
+
+其实，源码已经给了我答案，但是由于第一次安卓是打包成功的，然后又觉得后面不读取process的输出流就规避了I/O的问题，但是因为理解的偏差，没有发现原因所在。还有一个误导我的点是，IOS的打包脚本可以成功。不存在这个阻塞的问题。这个我依然没有搞明白是为什么，既然都是开辟了新的子线程，那么就跟我本地的Java服务没有关系了，为什么安卓的就不行呢？请大佬们点拨一下。
+
+" />
+    
+    <meta name="author" content="blogs" />
+
+    
+    <meta property="og:title" content="Runtime.getRuntime().exec()中间执行阻塞的记录" />
+    <meta property="twitter:title" content="Runtime.getRuntime().exec()中间执行阻塞的记录" />
+    
+  <!-- Async font loading -->
+<script>
+  window.WebFontConfig = {
+      custom: {
+          families: ['Spoqa Han Sans:100,300,400,700'],
+          urls: ['https://spoqa.github.io/spoqa-han-sans/css/SpoqaHanSans-kr.css']
+      },
+      timeout: 60000
+  };
+  (function(d) {
+      var wf = d.createElement('script'), s = d.scripts[0];
+      wf.src = 'https://ajax.googleapis.com/ajax/libs/webfont/1.5.18/webfont.js';
+      s.parentNode.insertBefore(wf, s);
+  })(document);
+</script>
+
+<!--adobe fonts-->
+<script>
+    (function(d) {
+      var config = {
+        kitId: 'vbt3gjx',
+        scriptTimeout: 3000,
+        async: true
+      },
+      h=d.documentElement,t=setTimeout(function(){h.className=h.className.replace(/\bwf-loading\b/g,"")+" wf-inactive";},config.scriptTimeout),tk=d.createElement("script"),f=false,s=d.getElementsByTagName("script")[0],a;h.className+=" wf-loading";tk.src='https://use.typekit.net/'+config.kitId+'.js';tk.async=true;tk.onload=tk.onreadystatechange=function(){a=this.readyState;if(f||a&&a!="complete"&&a!="loaded")return;f=true;clearTimeout(t);try{Typekit.load(config)}catch(e){}};s.parentNode.insertBefore(tk,s)
+    })(document);
+</script> 
+
+  <!--[if lt IE 9]>
+    <script src="http://html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+  <![endif]-->
+
+  <link rel="stylesheet" type="text/css" href="//style.css" />
+  <link rel="alternate" type="application/rss+xml" title="blogs - yoyocheknow的博客" href="//feed.xml" />
+  <link rel="shortcut icon" href="https://raw.githubusercontent.com/FromEndWorld/LOFFER/master/images/favicon.png">
+  <script src="https://cdn.jsdelivr.net/npm/gitalk@1/dist/gitalk.min.js"></script>
+  <script src="https://unpkg.com/feather-icons"></script>
+  <script type="text/javascript" async
+  src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.1/MathJax.js?config=TeX-AMS-MML_HTMLorMML">
+  </script>
+  <script type="text/x-mathjax-config">
+    MathJax.Hub.Config({
+      tex2jax: {
+        skipTags: ['script', 'noscript', 'style', 'textarea', 'pre'],
+        inlineMath: [['$','$']]
+      }
+    });
+  </script>
+
+  <!-- Created with Jekyll Now - http://github.com/barryclark/jekyll-now -->
+
+</head>
+
+  <body>
+    <div class="wrapper-sidebar">
+  <header class="sidebar clearfix">
+    <div class="site-info">
+      
+        <a href="//" class="site-avatar"><img src="https://i.loli.net/2020/09/05/w19XjgKNCvtyGoQ.jpg" /></a>
+       
+      <h1 class="site-name"><a href="//">blogs</a></h1>
+      <p class="site-description">yoyocheknow的博客</p>
+    </div>
+  </header>
+
+  <div class="navlist">
+    <nav>
+      
+      
+      <a href="//">首页</a>
+      
+      
+      
+      <a href="//about">关于</a>
+      
+      
+      
+      <a href="//archive">归档</a>
+      
+      
+      
+      <a href="//tags">标签</a>
+      
+      
+    </nav>
+  </div>
+
+  <div class="wrapper-footer-desktop">
+    <footer class="footer">
+      <!-- Refer to https://codepen.io/ruandre/pen/howFi -->
+<ul class="svg-icon">
+
+  
+  
+  
+
+  
+
+  
+  <li><a href="mailto:911dangerous@mail.com" class="icon-8 email" title="Email"><svg viewBox="0 0 512 512"><path d="M502.3 190.8c3.9-3.1 9.7-.2 9.7 4.7V400c0 26.5-21.5 48-48 48H48c-26.5 0-48-21.5-48-48V195.6c0-5 5.7-7.8 9.7-4.7 22.4 17.4 52.1 39.5 154.1 113.6 21.1 15.4 56.7 47.8 92.2 47.6 35.7.3 72-32.8 92.3-47.6 102-74.1 131.6-96.3 154-113.7zM256 320c23.2.4 56.6-29.2 73.4-41.4 132.7-96.3 142.8-104.7 173.4-128.7 5.8-4.5 9.2-11.5 9.2-18.9v-19c0-26.5-21.5-48-48-48H48C21.5 64 0 85.5 0 112v19c0 7.4 3.4 14.3 9.2 18.9 30.6 23.9 40.7 32.4 173.4 128.7 16.8 12.2 50.2 41.8 73.4 41.4z"/></svg><!--[if lt IE 9]><em>Email</em><![endif]--></a></li>
+  
+
+  
+
+  
+
+  
+  <li><a href="https://github.com/yoyocheknow" class="icon-13 github" title="GitHub"><svg viewBox="0 0 512 512"><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6zm-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3zm44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9zM244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8zM97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1zm-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7zm32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1zm-11.4-14.7c-1.6 1-1.6 3.6 0 5.9 1.6 2.3 4.3 3.3 5.6 2.3 1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2z"/></svg><!--[if lt IE 9]><em>GitHub</em><![endif]--></a></li>
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+</ul>
+
+
+
+<p>Copyright (c) 2020 yoyocheknow</p>
+
+    </footer>
+  </div>
+</div>
+
+    
+
+    <div id="main" role="main" class="wrapper-content">
+      <div class="container">
+        <article class="posts">
+  <h1>Runtime.getRuntime().exec()中间执行阻塞的记录</h1>
+
+  <div clsss="meta">
+    <span class="author">
+      yoyocheknow
+    </span>
+
+    <span class="date">
+      2020-09-11
+    </span>
+
+    <ul class="tag">
+      
+      <li>
+        <a href="//tags#Java">
+          Java
+        </a>
+      </li>
+      
+    </ul>
+  </div>
+
+  <div class="entry">
+    <h1 id="runtimegetruntimeexec-中间执行阻塞的记录">Runtime.getRuntime().exec() 中间执行阻塞的记录</h1>
+
+<blockquote>
+  <p>背景：我们正在做一个专属化打包平台，会调用Android 和iOS 的python脚本执行打包命令。但是在执行Android 的python打包脚本时，中间会莫名其妙的阻塞。</p>
+</blockquote>
+
+<p>先来看一下一开始写的代码：</p>
+
+<pre><code class="language-java">public static void executePython(String path,String logPath,String taskId) {
+
+        Process proc;
+        StringBuffer stringBuffer = new StringBuffer();
+        try {
+            String[] args = new String[] { "python3", path, taskId };
+            log.info("python commends: python ,path: {},taskId: {}",path,taskId);
+            proc = Runtime.getRuntime().exec(args);// 执行py文件
+            log.info("proc:"+proc);
+
+						//用输入输出流来截取结果
+            BufferedReader in = new BufferedReader(new InputStreamReader(proc.getInputStream()));
+            BufferedReader stderr = new BufferedReader(new InputStreamReader(proc.getErrorStream()));
+            String line;
+            while ((line=in.readLine()) != null) {
+                System.out.println("来自python脚本："+line);
+                stringBuffer.append(line);
+                stringBuffer.append("\n");
+            }
+            while ((line = stderr.readLine()) != null)
+            {
+                System.out.println("来自python脚本："+ line);
+                stringBuffer.append(line);
+                stringBuffer.append("\n");
+            }
+
+            in.close();
+            stderr.close();
+            proc.waitFor();
+        } catch (Exception e) {
+            log.info("执行python脚本异常 :",e);
+            throw new Exception("执行python脚本异常", e.getMessage());
+        }
+
+        FileWriter writer;
+        try {
+            writer = new FileWriter(logPath);
+            writer.write(String.valueOf(stringBuffer));
+            writer.flush();
+            writer.close();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+
+    }
+</code></pre>
+
+<p>通过Runtime.getRuntime().exec 执行python脚本，然后获取proc返回的日志流并记录在文件中。但是在调用Android的python打包脚本时，中间会阻塞。</p>
+
+<p>我在排查原因时走了很多弯路。因为这段代码在执行 IOS的打包脚本时是没有问题的，只要执行Android的打包脚本就会中间阻塞。而且IOS打包脚本输出的日志要大的多，最终的日志大小有100多M，而Android的要小的多，大约10多M。然后为了排除这个原因，我就把获取proc的输入流取消掉，即不接受子进程的日志。代码变成下面这个样子：</p>
+
+<pre><code class="language-java">public static void executePython(String path,String logPath,String taskId) {
+
+        Process proc;
+        StringBuffer stringBuffer = new StringBuffer();
+        try {
+            String[] args = new String[] { "python3", path, taskId };
+            log.info("python commends: python ,path: {},taskId: {}",path,taskId);
+            proc = Runtime.getRuntime().exec(args);// 执行py文件
+            log.info("proc:"+proc);
+            proc.waitFor();
+        } catch (Exception e) {
+            log.info("执行python脚本异常 :",e);
+            throw new ECRemoteServiceException("执行python脚本异常", e.getMessage());
+        }
+
+    }
+</code></pre>
+
+<p>但是依然中间会阻塞住。</p>
+
+<p>然后我们从内存的角度来看一下运行的过程，通过jstack查看堆栈信息，如下图所示：</p>
+
+<p><img src="https://tva1.sinaimg.cn/large/007S8ZIlly1gimsepcsktj316s0u0127.jpg" alt="堆栈信息" /></p>
+
+<p>从上面看出，第一个线程是执行python脚本的线程，处于runable状态，第二个线程是获取process的inputStream流信息，也是处于runnable状态，这么看并没有任何问题。下面看一下堆内存的使用情况：</p>
+
+<p><img src="https://tva1.sinaimg.cn/large/007S8ZIlly1gimsfiw885j314g0u00xq.jpg" alt="img" /></p>
+
+<p>虽然处于上升状态，但依然没有超过最大堆内存。所以也没有什么问题。</p>
+
+<table>
+  <tbody>
+    <tr>
+      <td>但是后来想到，这个堆内存使用信息是打包平台服务的内存使用情况，并不能体现出打包脚本的内存使用（因为Android打包脚本 也是java服务）。通过“ps -ef</td>
+      <td>grep java” 查看一下：</td>
+    </tr>
+  </tbody>
+</table>
+
+<p><img src="https://tva1.sinaimg.cn/large/007S8ZIlly1gimsfugnazj324w07mtc9.jpg" alt="img" /></p>
+
+<p><img src="https://tva1.sinaimg.cn/large/007S8ZIlly1gimsg01fhaj325c09sjtv.jpg" alt="img" /></p>
+
+<p>可以看到打包脚本的内存占用是3.5个G，打包脚本的最大堆内存设置的是5个G。到这里依然没有发现是什么原因。</p>
+
+<p>但是有一个奇怪现象是，本来我的代码中是想着实时获取打包脚本的日志流，并放在一个BufferReader里面，打包完成后再写入到本地的文件，但是中间执行过程中始终没有日志输出，当卡了好久，把打包线程终止后，日志才花花地输出。</p>
+
+<p>下面我们看一下process具体是个什么东西？</p>
+
+<blockquote>
+  <p>The <a href="https://docs.oracle.com/javase/8/docs/api/java/lang/ProcessBuilder.html#start--"><code>ProcessBuilder.start()</code></a> and <a href="https://docs.oracle.com/javase/8/docs/api/java/lang/Runtime.html#exec-java.lang.String:A-java.lang.String:A-java.io.File-"><code>Runtime.exec</code></a> methods create a native process and return an instance of a subclass of <code>Process</code> that can be used to control the process and obtain information about it. The class <code>Process</code> provides methods for performing input from the process, performing output to the process, waiting for the process to complete, checking the exit status of the process, and destroying (killing) the process.</p>
+</blockquote>
+
+<p>Runtime.exec 方法会创建一个本地的进程，并返回子进程的一个process实例，通过这个process实例可以控制这个子进程，或者获取关于子进程的信息。Process类提供了获取子进程input，output的方法，等待子进程执行成功，检查子进程存在状态，销毁子进程的方法。</p>
+
+<blockquote>
+  <p>By default, the created subprocess does not have its own terminal or console. All its standard I/O (i.e. stdin, stdout, stderr) operations will be redirected to the parent process, where they can be accessed via the streams obtained using the methods <a href="https://docs.oracle.com/javase/8/docs/api/java/lang/Process.html#getOutputStream--"><code>getOutputStream()</code></a>, <a href="https://docs.oracle.com/javase/8/docs/api/java/lang/Process.html#getInputStream--"><code>getInputStream()</code></a>, and <a href="https://docs.oracle.com/javase/8/docs/api/java/lang/Process.html#getErrorStream--"><code>getErrorStream()</code></a>. The parent process uses these streams to feed input to and get output from the subprocess. Because some native platforms only provide limited buffer size for standard input and output streams, failure to promptly write the input stream or read the output stream of the subprocess may cause the subprocess to block, or even deadlock.</p>
+</blockquote>
+
+<p>创建的子进程没有自己terminal或者控制台输出，它所有的标准I/O流（比如stdin，stout，stderr）操作将会被重定向到父进程。这些流可以通过getOutputStream()， getInputStream()， getErrorStream()方法来获取。所以父进程可以通过这些stream来获取子进程的input和output。因为一些本地的平台为标准的输入输出流只提供了有限的buffer size，所以如果不能及时地写入input流或者读取output流会导致 子进程阻塞甚至死锁。</p>
+
+<p>以上是JDK中对Process类的描述。关键的一句话就是“<strong>要及时的读取或者写入 子进程的输出或者输入流，否则就会因为buffer size 有限而导致子进程阻塞</strong>”。从这句话基本就可以定位为什么上面的程序在执行脚本时中间会卡住。</p>
+
+<p>很明显子进程打包脚本的日志是一直在内存里的，当进程销毁时，才输出出来。然后查看process的定义，发现果然如此。子进程的日志是一直写入在内存缓冲区的，需要消费掉，才不会导致阻塞。那么我们就新起一个子线程来专门消费这个日志流。代码如下所示：</p>
+
+<pre><code class="language-java">public class JavaExecutePythonUtils {
+
+    static ExecutorService executor = Executors.newFixedThreadPool(20);
+    public static void executePython(String path,String logPath,String taskId) {
+
+        Process proc;
+        try {
+            String[] args = new String[] { "python3", path, taskId };
+            log.info("python commends: python ,path: {},taskId: {}",path,taskId);
+            proc = Runtime.getRuntime().exec(args);// 执行py文件
+            log.info("proc:"+proc);
+
+            new Thread(new OutputHandlerRunnable(proc.getInputStream())).start();
+            new Thread(new OutputHandlerRunnable(proc.getErrorStream())).start();
+
+          
+        } catch (Exception e) {
+            log.info("执行python脚本异常 :",e);
+            throw new ECRemoteServiceException("执行python脚本异常", e.getMessage());
+        }
+    }
+
+    @Data
+    @AllArgsConstructor
+    private static class OutputHandlerRunnable implements Runnable {
+        private InputStream in;
+
+        @Override
+        public void run() {
+            try (BufferedReader bufr = new BufferedReader(new InputStreamReader(this.in))) {
+                String line = null;
+                while ((line = bufr.readLine()) != null) {
+                    System.out.println("来自python脚本："+line);
+                }
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+
+
+        }
+    }
+}
+</code></pre>
+
+<p>可以发现，打包脚本日志可以实时输出在控制台了，而且也打包成功了，再也不阻塞了。</p>
+
+<p><strong>总结：</strong></p>
+
+<p>其实，源码已经给了我答案，但是由于第一次安卓是打包成功的，然后又觉得后面不读取process的输出流就规避了I/O的问题，但是因为理解的偏差，没有发现原因所在。还有一个误导我的点是，IOS的打包脚本可以成功。不存在这个阻塞的问题。这个我依然没有搞明白是为什么，既然都是开辟了新的子线程，那么就跟我本地的Java服务没有关系了，为什么安卓的就不行呢？请大佬们点拨一下。</p>
+
+  </div>
+
+  
+<div class="comments">
+	<div id="disqus_thread"></div>
+	<script type="text/javascript">
+
+	    var disqus_shortname = 'loffer';
+
+	    (function() {
+	        var dsq = document.createElement('script'); dsq.type = 'text/javascript'; dsq.async = true;
+	        dsq.src = '//' + disqus_shortname + '.disqus.com/embed.js';
+	        (document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(dsq);
+	    })();
+
+	</script>
+	<noscript>Please enable JavaScript to view the <a href="http://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+</div>
+
+  
+<script src="https://utteranc.es/client.js"
+        repo=""
+        issue-term=""
+        label=""
+        theme=""
+        crossorigin=""
+        async>
+</script>
+
+
+  
+</article>
+
+<div class="pagination">
+  
+    <span class="prev" >
+      <a href="//CompletableFuture%E5%88%9D%E6%8E%A2/">
+        ← 上一篇
+      </a>
+    </span>
+  
+  
+</div>
+      </div>
+    </div>
+
+    
+
+  </body>
+
+  
+
+  <div class="wrapper-footer-mobile">
+    <footer class="footer">
+      <!-- Refer to https://codepen.io/ruandre/pen/howFi -->
+<ul class="svg-icon">
+
+  
+  
+  
+
+  
+
+  
+  <li><a href="mailto:911dangerous@mail.com" class="icon-8 email" title="Email"><svg viewBox="0 0 512 512"><path d="M502.3 190.8c3.9-3.1 9.7-.2 9.7 4.7V400c0 26.5-21.5 48-48 48H48c-26.5 0-48-21.5-48-48V195.6c0-5 5.7-7.8 9.7-4.7 22.4 17.4 52.1 39.5 154.1 113.6 21.1 15.4 56.7 47.8 92.2 47.6 35.7.3 72-32.8 92.3-47.6 102-74.1 131.6-96.3 154-113.7zM256 320c23.2.4 56.6-29.2 73.4-41.4 132.7-96.3 142.8-104.7 173.4-128.7 5.8-4.5 9.2-11.5 9.2-18.9v-19c0-26.5-21.5-48-48-48H48C21.5 64 0 85.5 0 112v19c0 7.4 3.4 14.3 9.2 18.9 30.6 23.9 40.7 32.4 173.4 128.7 16.8 12.2 50.2 41.8 73.4 41.4z"/></svg><!--[if lt IE 9]><em>Email</em><![endif]--></a></li>
+  
+
+  
+
+  
+
+  
+  <li><a href="https://github.com/yoyocheknow" class="icon-13 github" title="GitHub"><svg viewBox="0 0 512 512"><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6zm-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3zm44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9zM244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8zM97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1zm-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7zm32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1zm-11.4-14.7c-1.6 1-1.6 3.6 0 5.9 1.6 2.3 4.3 3.3 5.6 2.3 1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2z"/></svg><!--[if lt IE 9]><em>GitHub</em><![endif]--></a></li>
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+</ul>
+
+
+
+<p>Copyright (c) 2020 yoyocheknow</p>
+
+    </footer>
+
+
+</html>
