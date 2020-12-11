@@ -9,9 +9,7 @@
     <meta name='viewport' content='width=device-width, initial-scale=1.0, maximum-scale=1.0'>
 
     
-    <meta name="description" content="Runtime.getRuntime().exec() 中间执行阻塞的记录
-
-
+    <meta name="description" content="
   背景：我们正在做一个专属化打包平台，会调用Android 和iOS 的python脚本执行打包命令。但是在执行Android 的python打包脚本时，中间会莫名其妙的阻塞。
 
 
@@ -185,9 +183,7 @@ public class JavaExecutePythonUtils {
 其实，源码已经给了我答案，但是由于第一次安卓是打包成功的，然后又觉得后面不读取process的输出流就规避了I/O的问题，但是因为理解的偏差，没有发现原因所在。还有一个误导我的点是，IOS的打包脚本可以成功。不存在这个阻塞的问题。这个我依然没有搞明白是为什么，既然都是开辟了新的子线程，那么就跟我本地的Java服务没有关系了，为什么安卓的就不行呢？请大佬们点拨一下。
 
 " />
-    <meta property="og:description" content="Runtime.getRuntime().exec() 中间执行阻塞的记录
-
-
+    <meta property="og:description" content="
   背景：我们正在做一个专属化打包平台，会调用Android 和iOS 的python脚本执行打包命令。但是在执行Android 的python打包脚本时，中间会莫名其妙的阻塞。
 
 
@@ -532,9 +528,7 @@ public class JavaExecutePythonUtils {
   </div>
 
   <div class="entry">
-    <h1 id="runtimegetruntimeexec-中间执行阻塞的记录">Runtime.getRuntime().exec() 中间执行阻塞的记录</h1>
-
-<blockquote>
+    <blockquote>
   <p>背景：我们正在做一个专属化打包平台，会调用Android 和iOS 的python脚本执行打包命令。但是在执行Android 的python打包脚本时，中间会莫名其妙的阻塞。</p>
 </blockquote>
 
