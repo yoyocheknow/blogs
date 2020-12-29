@@ -1,0 +1,1011 @@
+<p>来源于一次内部分享。着重讲了下Java8的相关新特性，其他版本的特性一带而过。</p>
+
+<h1 id="java8新特性">Java8新特性</h1>
+
+<h2 id="lambda表达式">Lambda表达式</h2>
+
+<h3 id="1为什么使用lambda表达式">1,为什么使用Lambda表达式？</h3>
+
+<p>假设你有一个Apple类，它 有一个getColor方法，还有一个变量inventory保存着一个Apples的列表。你可能想要选出所 有的绿苹果，并返回一个列表。通常我们用筛选(filter)一词来表达这个概念。</p>
+
+<p><img src="https://tva1.sinaimg.cn/large/0081Kckwly1gm4j3hhck9j31bc0aen54.jpg" alt="image-20201229104251123" /></p>
+
+<p><img src="https://tva1.sinaimg.cn/large/0081Kckwly1gm4j3ncav0j31bm0dkakf.jpg" alt="image-20201229104304216" /></p>
+
+<p><img src="https://tva1.sinaimg.cn/large/0081Kckwly1gm4j5be7jbj31240bmn2n.jpg" alt="image-20201229104439332" /></p>
+
+<p><img src="https://tva1.sinaimg.cn/large/0081Kckwly1gm4j5wqiqqj319e0bwqb8.jpg" alt="image-20201229104514578" /></p>
+
+<p><strong>lambda本质：行为参数化，从传递参数到传递方法</strong></p>
+
+<p>以上写法如果改成Lambda的写法如下所示：</p>
+
+<pre><code class="language-java">filterApples(inventory, (Apple a) -&gt; "green".equals(a.getColor()) );
+filterApples(inventory, (Apple a) -&gt; a.getWeight() &gt; 150 ); 
+filterApples(inventory, (Apple a) -&gt; a.getWeight() &lt; 80 || "brown".equals(a.getColor()) ); 
+
+</code></pre>
+
+<p>###2,Lambda表达式是什么</p>
+
+<p>可传递匿名函数的一种方式 。</p>
+
+<ul>
+  <li>
+    <p>匿名——我们说匿名，是因为它不像普通的方法那样有一个明确的名称:写得少而想得多!</p>
+  </li>
+  <li>函数——我们说它是函数，是因为Lambda函数不像方法那样属于某个特定的类。但和方 法一样，Lambda有参数列表、函数主体、返回类型，还可能有可以抛出的异常列表</li>
+  <li>传递——Lambda表达式可以作为参数传递给方法或存储在变量中.</li>
+  <li>简洁——无需像匿名类那样写很多模板代码。</li>
+</ul>
+
+<h3 id="3lambda表达式如何使用">3,Lambda表达式如何使用</h3>
+
+<p><img src="https://tva1.sinaimg.cn/large/0081Kckwly1gm4jj0vxqwj312i08yq6o.jpg" alt="image-20201229105743863" /></p>
+
+<ul>
+  <li>参数列表——这里它采用了Comparator中compare方法的参数，两个Apple。</li>
+  <li>箭头——箭头-&gt;把参数列表与Lambda主体分隔开。</li>
+  <li>Lambda主体——比较两个Apple的重量。表达式就是Lambda的返回值了。</li>
+</ul>
+
+<p><img src="https://tva1.sinaimg.cn/large/0081Kckwly1gm4jl9ltnaj31cm0e2k81.jpg" alt="image-20201229105958640" /></p>
+
+<p>以下哪个不是有效的Lambda表达式？</p>
+
+<p>(1) () -&gt; {}</p>
+
+<p>(2) () -&gt; “Raoul”</p>
+
+<p>(3) () -&gt; {return “Mario”;}</p>
+
+<p>(4) (Integer i) -&gt; return “Alan” + i;</p>
+
+<p>(5) (String s) -&gt; {“IronMan”;}</p>
+
+<p>答案:只有4和5是无效的Lambda。</p>
+
+<p>(1) 这个Lambda没有参数，并返回void。它类似于主体为空的方法:public void run() {}。</p>
+
+<p>(2) 这个Lambda没有参数，并返回String作为表达式。</p>
+
+<p>(3) 这个Lambda没有参数，并返回String(利用显式返回语句)。</p>
+
+<p>(4) return是一个控制流语句。要使此Lambda有效，需要使花括号，如下所示: (Integer i) -&gt; {return “Alan” + i;}。</p>
+
+<p>(5)“Iron Man”是一个表达式，不是一个语句。要使此Lambda有效，你可以去除花括号 和分号，</p>
+
+<p>如下所示:(String s) -&gt; “Iron Man”。或者如果你喜欢，可以使用显式返回语 句，</p>
+
+<p>如下所示:(String s)-&gt;{return “IronMan”;}。</p>
+
+<p><img src="https://tva1.sinaimg.cn/large/0081Kckwly1gm4jpdd6ouj317q0hmq6x.jpg" alt="image-20201229110354782" /></p>
+
+<p>在哪里及如何使用lambda表达式？</p>
+
+<p>答案：函数式接口</p>
+
+<pre><code class="language-java">List&lt;Apple&gt; greenApples = filter(inventory, (Apple a) -&gt; "green".equals(a.getColor()));
+
+</code></pre>
+
+<p><img src="https://tva1.sinaimg.cn/large/0081Kckwly1gm4jt6lu9uj30ym0du0xj.jpg" alt="image-20201229110735728" /></p>
+
+<h3 id="4函数式接口">4,函数式接口</h3>
+
+<p>函数式接口就是只定义一个抽象方法的接口 。</p>
+
+<p><img src="https://tva1.sinaimg.cn/large/0081Kckwly1gm4ju9v52yj31180iywmw.jpg" alt="image-20201229110839969" /></p>
+
+<p>下面哪些接口是函数式接口?</p>
+
+<p>public interface Adder{ int add(int a, int b); }</p>
+
+<p>public interface SmartAdder extends Adder{ int add(double a, double b); }</p>
+
+<p>public interface Nothing{ }</p>
+
+<p>答案:</p>
+
+<p>只有Adder是函数式接口。</p>
+
+<p>SmartAdder不是函数式接口，因为它定义了两个叫作add的抽象方法(其中一个是从Adder那里继承来的)。</p>
+
+<p>Nothing也不是函数式接口，因为它没有声明抽象方法。</p>
+
+<p>用函数式接口可以干什么呢?Lambda表达式允许你直接以内联的形式为函数式接口的抽象方法提供实现，并把整个表达式作为函数式接口的实例(具体说来，是函数式接口一个具体实现的实例)。</p>
+
+<p><img src="https://tva1.sinaimg.cn/large/0081Kckwly1gm4jwun7kij31660hadjh.jpg" alt="image-20201229111107445" /></p>
+
+<p>对于下列函数描述符(即Lambda表达式的签名)，你会使用哪些函数式接口?</p>
+
+<p>(1) T-&gt;R</p>
+
+<p>(2) (int, int)-&gt;int</p>
+
+<p>(3) T-&gt;void</p>
+
+<p>(4) ()-&gt;T</p>
+
+<p>(5) (T, U)-&gt;R</p>
+
+<p>(1) Function&lt;T,R&gt;不错。它一般用于将类型T的对象转换为类型R的对象(比如Function&lt;Apple, Integer&gt;用来提取苹果的重量)。</p>
+
+<p>(2) IntBinaryOperator具有唯一一个抽象方法，叫作applyAsInt，它代表的函数描述符是(int, int) -&gt; int。</p>
+
+<p>(3) Consumer<T>具有唯一一个抽象方法叫作accept，代表的函数描述符是T -&gt; void。</T></p>
+
+<p>(4) Supplier<T>具有唯一一个抽象方法叫作get，代表的函数描述符是()-&gt; T。或者，Callable<T>具有唯一一个抽象方法叫作call，代表的函数描述符是() -&gt; T。</T></T></p>
+
+<p>(5) BiFunction&lt;T, U, R&gt;具有唯一一个抽象方法叫作apply，代表的函数描述符是(T,U) -&gt; R。</p>
+
+<h3 id="5方法引用">5,方法引用</h3>
+
+<p>Java8之前引用一个类的方法，必须先实例化一个类，然后使用它的方法。</p>
+
+<p>比如类A，有一个方法</p>
+
+<pre><code class="language-java">Boolean isHandsome();
+A a = new A()
+a.isHandsome();
+</code></pre>
+
+<p>Java 8之后可以这么使用：</p>
+
+<pre><code class="language-java">A:: isHandsome
+</code></pre>
+
+<p><img src="https://tva1.sinaimg.cn/large/0081Kckwly1gm4k2fge56j318e08sgs1.jpg" alt="image-20201229111630072" /></p>
+
+<p>下列Lambda表达式的等效方法引用是什么?</p>
+
+<p>(1)Function&lt;String, Integer&gt; stringToInteger = (String s) -&gt; Integer.parseInt(s);</p>
+
+<p>(2) BiPredicate&lt;List<String>, String&gt; contains = (list, element) -&gt; list.contains(element);</String></p>
+
+<p>(1)这个Lambda表达式将其参数传给了Integer的静态方法parseInt。这种方法接受一 个需要解析的String，并返回一个Integer。来重写Lambda表达式，如下所示:</p>
+
+<pre><code class="language-java">Function&lt;String, Integer&gt; stringToInteger = Integer::parseInt;
+
+</code></pre>
+
+<p>(2) 这个Lambda使用其第一个参数，调用其contains方法。由于第一个参数是List类型的，如下所示:</p>
+
+<pre><code class="language-java">BiPredicate&lt;List&lt;String&gt;, String&gt; contains = List::contains;
+</code></pre>
+
+<p>这是因为，目标类型描述的函数描述符是 (List<String>,String) -&gt; boolean，而 List::contains可以被解包成这个函数描述符</String></p>
+
+<p><strong>构造函数引用</strong></p>
+
+<p>对于一个现有构造函数，你可以利用它的名称和关键字new来创建它的一个引用: ClassName::new</p>
+
+<pre><code class="language-java">Supplier&lt;Apple&gt; c1 = Apple::new; 
+Apple a1 = c1.get(); 
+</code></pre>
+
+<p>这就等价于：</p>
+
+<pre><code class="language-java">Supplier&lt;Apple&gt; c1 = () -&gt; new Apple(); 
+Apple a1 = c1.get(); 
+
+</code></pre>
+
+<p>如果你的构造函数的签名是Apple(Integer weight)，那么它就适合Function接口的签 名，于是你可以这样写</p>
+
+<pre><code>Function&lt;Integer, Apple&gt; c2 = Apple::new; 
+Apple a2 = c2.apply(110); 
+</code></pre>
+
+<p>这就等价于:</p>
+
+<pre><code>Function&lt;Integer, Apple&gt; c2 = (weight) -&gt; new Apple(weight);  
+Apple a2 = c2.apply(110); 
+</code></pre>
+
+<h3 id="6lambda小结">6,Lambda小结</h3>
+
+<p>• Lambda表达式可以理解为一种匿名函数:它没有名称，但有参数列表、函数主体、返回类型，可能还有一个可以抛出的异常的列表。</p>
+
+<p>• Lambda表达式让你可以简洁地传递代码。</p>
+
+<p>• 函数式接口就是仅仅声明了一个抽象方法的接口。</p>
+
+<p>• 只有在接受函数式接口的地方才可以使用Lambda表达式。</p>
+
+<p>• Lambda表达式允许你直接内联，为函数式接口的抽象方法提供实现，并且将整个表达式作为函数式接口的一个实例。</p>
+
+<p>• Java 8自带一些常用的函数式接口，放在java.util.function包里，包括Predicate<T>、Function&lt;T,R&gt;、Supplier<T>、Consumer<T>和BinaryOperator<T></T></T></T></T></p>
+
+<p>• 方法引用让你重复使用现有的方法实现并直接传递它们。</p>
+
+<p>• Comparator、Predicate和Function等函数式接口都有几个可以用来结合Lambda表达式的默认方法。</p>
+
+<h2 id="stream流">Stream流</h2>
+
+<p>流是Java API的新成员，它允许你以声明性方式处理数据集合。你可以把它们看成遍历数据集的高级迭代器 。</p>
+
+<p>流之前的处理方式：</p>
+
+<p><img src="https://tva1.sinaimg.cn/large/0081Kckwly1gm4o8g7xqsj31460gyn8m.jpg" alt="image-20201229134039643" /></p>
+
+<p><img src="https://tva1.sinaimg.cn/large/0081Kckwly1gm4o94kjmjj31800jwtop.jpg" alt="image-20201229134116858" /></p>
+
+<p>从支持数据处理操作的源生成的元素序列 ，</p>
+
+<ul>
+  <li>元素序列——就像集合一样，流也提供了一个接口，可以访问特定元素类型的一组有序值。因为集合是数据结构，所以它的主要目的是以特定的时间/空间复杂度存储和访问元素(如ArrayList 与 LinkedList)。但流的目的在于表达计算，比如你前面见到的 filter、sorted和map。集合讲的是数据，流讲的是计算。</li>
+  <li>源——流会使用一个提供数据的源，如集合、数组或输入/输出资源。请注意，从有序集 合生成流时会保留原有的顺序。由列表生成的流，其元素顺序与列表一致。</li>
+  <li>数据处理操作——流的数据处理功能支持类似于数据库的操作，以及函数式编程语言中的常用操作，如filter、map、reduce、find、match、sort等。流操作可以顺序执行，也可并行执行。</li>
+  <li>流水线——很多流操作本身会返回一个流，这样多个操作就可以链接起来，形成一个大的流水线。这让我们下一章中的一些优化成为可能，如延迟和短路。流水线的操作可以看作对数据源进行数据库式查询。</li>
+</ul>
+
+<p><img src="https://tva1.sinaimg.cn/large/0081Kckwly1gm4oczgsxkj30y40msnbl.jpg" alt="image-20201229134502559" /></p>
+
+<pre><code class="language-java">import static java.util.stream.Collectors.toList;
+List&lt;String&gt; threeEighCaloricDishNames = menu.stream().filter(d -&gt; d.getCalories()&gt;300)
+   																										.map(Dish::getName) //获取菜名
+  																										.limit(3)           //只取前三个
+  																										.collect(toList()); //将结果存在另一个List中
+</code></pre>
+
+<h3 id="1流-外部迭代与内部迭代">1,流 外部迭代与内部迭代</h3>
+
+<p>集合:用for-each循环外部迭代：</p>
+
+<pre><code class="language-java">List&lt;String&gt; names = new ArrayList&lt;&gt;(); 
+for(Dish d: menu){ 
+	names.add(d.getName()); 
+}
+</code></pre>
+
+<p>集合:用背后的迭代器做外部迭代</p>
+
+<pre><code class="language-java">List&lt;String&gt; names = new ArrayList&lt;&gt;(); 
+Iterator&lt;String&gt; iterator = menu.iterator();
+while(iterator.hasNext()) { 
+	Dish d = iterator.next(); 
+	names.add(d.getName());
+ } 
+
+</code></pre>
+
+<p>流：内部迭代</p>
+
+<pre><code class="language-java">List&lt;String&gt; names = menu.stream() 
+			.map(Dish::getName) 
+			.collect(toList()); 
+
+</code></pre>
+
+<p><img src="https://tva1.sinaimg.cn/large/0081Kckwly1gm4olbr6paj30tw0m0dkg.jpg" alt="image-20201229135303344" /></p>
+
+<p><img src="https://tva1.sinaimg.cn/large/0081Kckwly1gm4oly5tv8j311i09u0zs.jpg" alt="image-20201229135337711" /></p>
+
+<p><img src="https://tva1.sinaimg.cn/large/0081Kckwly1gm4om5ur55j30z60audj9.jpg" alt="image-20201229135351440" /></p>
+
+<p>由于流是内部操作，所以要是想看流的中间流程，可以通过以下方式：</p>
+
+<p><img src="https://tva1.sinaimg.cn/large/0081Kckwly1gm4oox0ts4j311c0my798.jpg" alt="image-20201229135623604" /></p>
+
+<h3 id="2使用流">2,使用流</h3>
+
+<p>流的使用一般包括三件事:</p>
+
+<ol>
+  <li>一个数据源(如集合)来执行一个查询;</li>
+  <li>一个中间操作链，形成一条流的流水线;</li>
+  <li>一个终端操作，执行流水线，并能生成结果</li>
+</ol>
+
+<p><img src="https://tva1.sinaimg.cn/large/0081Kckwly1gm4ovxpfkgj317y0jwam5.jpg" alt="image-20201229140314797" /></p>
+
+<ul>
+  <li>筛选：filter(),distinct()</li>
+  <li>切片：limit(n)</li>
+  <li>跳过：skip()</li>
+  <li>映射：map(), flatmap()</li>
+  <li>查找与匹配：allMatch、anyMatch、noneMatch、findFirst、findAny</li>
+</ul>
+
+<h4 id="映射">映射</h4>
+
+<p>流支持map方法，它会接受一个函数作为参数。这个函数会被应用到每个元素上，并将其映射成一个新的元素(使用映射一词，是因为它和转换类似，但其中的细微差别在于它是“创建一 个新版本”而不是去“修改”)。</p>
+
+<p>提取流中菜肴的名称：</p>
+
+<pre><code class="language-java">List&lt;String&gt; dishNames = menu.stream().map(Dish::getName) 
+				        											.collect(toList()); 
+
+</code></pre>
+
+<p>因为getName方法返回一个String，所以map方法输出的流的类型就是Stream<String>。</String></p>
+
+<p>给定一个单词列表，返回另 一个列表，显示每个单词中有几个字母：</p>
+
+<pre><code class="language-java">List&lt;String&gt; words = Arrays.asList("Java 8", "Lambdas", "In", "Action");
+List&lt;Integer&gt; wordLengths = words.stream().map(String::length)
+                                          .collect(toList()); 
+
+</code></pre>
+
+<h4 id="流的扁平化">流的扁平化</h4>
+
+<p>对于一张单词表，如何返回一张列表，列出里面各不相同的字符呢?</p>
+
+<p><img src="https://tva1.sinaimg.cn/large/0081Kckwly1gm4p1nt0c4j30ym0jc7b4.jpg" alt="image-20201229140844390" /></p>
+
+<p>以上做法没有实现我们想要的效果。可以使用flatmap()</p>
+
+<p><img src="https://tva1.sinaimg.cn/large/0081Kckwly1gm4p31p4gkj30vo0lyncf.jpg" alt="image-20201229141004977" /></p>
+
+<p>给定一个数字列表，如何返回一个由每个数的平方构成的列表呢?例如，给定[1, 2, 3, 4, 5]，应该返回[1, 4, 9, 16, 25]。</p>
+
+<pre><code class="language-java">List&lt;Integer&gt; numbers = Arrays.asList(1, 2, 3, 4, 5);
+List&lt;Integer&gt; squares = numbers.stream().map(n -&gt; n * n) 
+                                        .collect(toList()); 
+
+</code></pre>
+
+<p>给定两个数字列表，如何返回所有的数对呢?例如给定列表[1, 2, 3]和列表[3, 4]，应该返回[(1, 3), (1, 4), (2, 3), (2, 4), (3, 3), (3, 4)]</p>
+
+<pre><code class="language-java">List&lt;Integer&gt; numbers1 = Arrays.asList(1, 2, 3);
+List&lt;Integer&gt; numbers2 = Arrays.asList(3, 4);
+List&lt;int[]&gt; pairs = numbers1.stream().flatMap(
+  																		i -&gt; numbers2.stream().map(
+                                        			j -&gt; new int[]{i, j}
+                                      ))
+                                     .collect(toList());
+pairs.forEach(i-&gt;System.out.print(Arrays.toString(i)));
+
+</code></pre>
+
+<h4 id="规约">规约</h4>
+
+<p>对数字列表中的元素求和。以前的做法：</p>
+
+<pre><code class="language-java">int sum=0;
+for (int x : nums){
+      sum+=x;	
+}
+</code></pre>
+
+<p>利用reduce：</p>
+
+<pre><code class="language-java">int sum = numbers.stream().reduce(0, (a, b) -&gt; a + b); 
+</code></pre>
+
+<p>reduce接受两个参数:</p>
+
+<p>•一个初始值，这里是0;</p>
+
+<p>•一个BinaryOperator<T>来将两个元素结合起来产生一个新值，这里我们用的是lambda (a, b) -&gt; a + b</T></p>
+
+<p><img src="https://tva1.sinaimg.cn/large/0081Kckwly1gm4petmnesj30zg0oajw3.jpg" alt="image-20201229142122457" /></p>
+
+<p>归约方法的优势与并行化:</p>
+
+<p>相比于前面写的逐步迭代求和，使用reduce的好处在于，这里的迭代被内部迭代抽象掉了，这让内部实现得以选择并行执行reduce操作。而迭代式求和例子要更新共享变量sum，这不是那么容易并行化的。如果你加入了同步，很可能会发现线程竞争抵消了并行本应带来的 性能提升!</p>
+
+<h3 id="3构建流">3,构建流</h3>
+
+<p>1，由值创建流</p>
+
+<pre><code class="language-java">Stream&lt;String&gt; stream = Stream.of("Java 8 ", "Lambdas ", "In ", "Action");
+</code></pre>
+
+<p>2，由数组创建流</p>
+
+<pre><code class="language-java">int[] numbers3 = {2, 3, 5, 7, 11, 13};
+int sum1 = Arrays.stream(numbers3).sum();
+</code></pre>
+
+<p>3，由文件生成流</p>
+
+<pre><code class="language-java">long uniqueWords = 0;
+try(Stream&lt;String&gt; lines = Files.lines(Paths.get("data.txt"), Charset.defaultCharset())){
+            uniqueWords = lines.flatMap(line -&gt; Arrays.stream(line.split(" ")))
+                               .distinct()
+                               .count();
+            System.out.print("文件中不同的词有{}个"+uniqueWords);
+        }catch(IOException e){
+            System.out.print("exception e:"+e);
+        }
+</code></pre>
+
+<p>4，由函数生成流</p>
+
+<pre><code class="language-java">//创建斐波那契数列（0, 1）(1, 1), (1, 2), (2, 3), (3, 5), (5, 8), (8, 13), (13, 21)
+System.out.println("创建斐波那契数列-----");
+Stream.iterate(new int[]{0, 1},
+                t -&gt; new int[]{t[1], t[0]+t[1]})
+                .limit(20)
+                .forEach(t -&gt; System.out.print("(" + t[0] + "," + t[1] +")"));
+</code></pre>
+
+<h2 id="optional取代null">Optional取代null</h2>
+
+<p>在Java程序开发中使用null会带来理论和实际 操作上的种种问题。</p>
+
+<ul>
+  <li>它是错误之源。 NullPointerException是目前Java程序开发中最典型的异常。</li>
+  <li>它会使你的代码膨胀。 它让你的代码充斥着深度嵌套的null检查，代码的可读性糟糕透顶。</li>
+  <li>它自身是毫无意义的。 null自身没有任何的语义，尤其是，它代表的是在静态类型语言中以一种错误的方式对 3 缺失变量值的建模。</li>
+  <li>它破坏了Java的哲学。 Java一直试图避免让程序员意识到指针的存在，唯一的例外是:null指针。</li>
+  <li>它在Java的类型系统上开了个口子。 null并不属于任何类型，这意味着它可以被赋值给任意引用类型的变量。这会导致问题， 原因是当这个变量被传递到系统中的另一个部分后，你将无法获知这个null变量最初的 赋值到底是什么类型。</li>
+</ul>
+
+<p><img src="https://tva1.sinaimg.cn/large/0081Kckwly1gm4ps0uvqwj30qm0b0ac6.jpg" alt="image-20201229143404510" /></p>
+
+<p>变量存在时，Optional类只是对类简单封装。变量不存在时，缺失的值会被建模成一个“空” 的Optional对象，由方法Optional.empty()返回。Optional.empty()方法是一个静态工厂 方法，它返回Optional类的特定单一实例。你可能还有疑惑，null引用和Optional.empty() 有什么本质的区别吗?从语义上，你可以把它们当作一回事儿，但是实际中它们之间的差别非常 大:如果你尝试解引用一个null，一定会触发NullPointerException，不过使用 Optional.empty()就完全没事儿，它是Optional类的一个有效对象，多种场景都能调用，非 常有用。</p>
+
+<pre><code class="language-java">//声明一个空的Optional
+Optional&lt;Car&gt; optCar = Optional.empty();
+
+//依据一个非空值创建Optional,如果car是一个null，这段代码会立即抛出一个NullPointerException，而不是等到你试图访问car的属性值时才返回一个错误。
+Car car=new Car();
+Optional&lt;Car&gt; optCar1 = Optional.of(car);
+
+//可接受null的Optional
+//如果car是null，那么得到的Optional对象就是个空对象。
+Optional&lt;Car&gt; optCar2 = Optional.ofNullable(car);
+Insurance insurance = null;
+Optional&lt;Insurance&gt; optInsurance = Optional.ofNullable(insurance);
+Optional&lt;String&gt; name = optInsurance.map(Insurance::getName);
+</code></pre>
+
+<p>Optional类提供了多种方法读取 Optional实例中的变量值。</p>
+
+<ul>
+  <li>get()是这些方法中最简单但又最不安全的方法。如果变量存在，它直接返回封装的变量 值，否则就抛出一个NoSuchElementException异常。所以，除非你非常确定Optional 变量一定包含值，否则使用这个方法是个相当糟糕的主意。此外，这种方式即便相对于 嵌套式的null检查，也并未体现出多大的改进。</li>
+  <li>orElse(T other)它允许你在 Optional对象不包含值时提供一个默认值。</li>
+  <li>orElseGet(Supplier&lt;? extends T&gt; other)是orElse方法的延迟调用版，Supplier 方法只有在Optional对象不含值时才执行调用。</li>
+  <li>orElseThrow(Supplier&lt;? extends X&gt; exceptionSupplier)和get方法非常类似， 它们遭遇Optional对象为空时都会抛出一个异常，但是使用orElseThrow你可以定制希 望抛出的异常类型。</li>
+  <li>ifPresent(Consumer&lt;? super T&gt;)让你能在变量值存在时执行一个作为参数传入的 方法，否则就不进行任何操作。</li>
+</ul>
+
+<p>##CompletableFuture</p>
+
+<p>下面这段代码展示了Java 8之前使用 Future的一个例子。</p>
+
+<p><img src="https://tva1.sinaimg.cn/large/0081Kckwly1gm4qinq1xyj30oi0a0jto.jpg" alt="image-20201229145939270" /></p>
+
+<h3 id="1future接口的局限性">1,Future接口的局限性</h3>
+
+<p>很难表述Future结果之间的依赖性.比如无法完成如下操作：将两个异步计算合并为一个——这两个异步计算之间相互独立，同时第二个又依赖于第 一个的结果。</p>
+
+<h3 id="2completablefuture使用">2,CompletableFuture使用</h3>
+
+<pre><code class="language-java">public Future&lt;String&gt; calculateAsync() throws InterruptedException {
+    CompletableFuture&lt;String&gt; completableFuture 
+      = new CompletableFuture&lt;&gt;();
+
+    Executors.newCachedThreadPool().submit(() -&gt; {
+        Thread.sleep(500);
+        completableFuture.complete("Hello");
+        return null;
+    });
+
+    return completableFuture;
+}
+
+ Future&lt;String&gt; completableFuture = calculateAsync();
+ String result = completableFuture.get();
+ System.out.println("result="+result);
+
+</code></pre>
+
+<p>上面的代码我们都使用了并发的机制去执行的（比如使用线程池），但是如果我们想要跳过那些无用的模版方法仅仅是简单地异步执行一些code改如何做呢？</p>
+
+<p>####runAsync()和supplyAsync()</p>
+
+<p>静态方法例如：runAsync()和supplyAsync()，都允许我们创建一个CompletableFuture 实例，相应地都是Runnable和Supplier实例。</p>
+
+<p>由于Java8的新特性，Runnable和Suplier都允许通过lambda表达式传递他们的实例。</p>
+
+<pre><code class="language-java">CompletableFuture&lt;String&gt; future= CompletableFuture.supplyAsync(() -&gt; "Hello");
+assertEquals("Hello", future.get());
+
+</code></pre>
+
+<p>####处理异步计算：</p>
+
+<pre><code class="language-java">CompletableFuture&lt;String&gt; completableFuture= CompletableFuture.supplyAsync(() -&gt; "Hello");
+CompletableFuture&lt;String&gt; future = completableFuture.thenApply(s -&gt; s + " World");
+assertEquals("Hello World", future.get());
+</code></pre>
+
+<p>####合并特性：</p>
+
+<p>下面的例子种我们使用thenCompose()方法来依次合并两个Futures。注意，这个方法返回一个CompletableFuture实例。这个方法的参数是上一个计算步骤的结果。这样就允许我们在下一个CompletableFuture的lambda表达式中使用这个值。</p>
+
+<pre><code class="language-java">CompletableFuture&lt;String&gt; completableFuture = CompletableFuture.supplyAsync(() -&gt; "Hello")
+                                              .thenCompose(s -&gt;CompletableFuture.supplyAsync(() 																														 -&gt; s + " World"));
+assertEquals("Hello World", completableFuture.get());
+</code></pre>
+
+<p>####thenApply()和thenCompose()的使用方法:</p>
+
+<p>thenApply() 被用来处理前一个调用的结果。一个关键的点就是要记住，所有调用的返回值将会被组合。所以这个方法在我们想要转化一个CompletableFuture结果时是有用的。</p>
+
+<pre><code class="language-java">CompletableFuture&lt;Integer&gt; finalResult = compute().thenApply(s-&gt; s + 1);
+</code></pre>
+
+<p>thenCompose()和thenApply()类似都会返回一个新的执行阶段。thenCompose()使用前面的阶段作为参数。它将会打平并且返回一个带有结果的Future，而不是像thenApply()那样嵌套的结果。</p>
+
+<pre><code class="language-java">CompletableFuture&lt;Integer&gt; computeAnother(Integer i){
+    return CompletableFuture.supplyAsync(() -&gt; 10 + i);
+}
+CompletableFuture&lt;Integer&gt; finalResult = compute().thenCompose(this::computeAnother);
+
+</code></pre>
+
+<h4 id="已并行的方式运行多个futures">已并行的方式运行多个Futures</h4>
+
+<p>当我们需要以并行的方式执行多个Futures时，我们通常想要等待他们所有执行完然后处理他们组合的结果。</p>
+
+<p>CompletableFuture的allOf静态方法允许等待所有Futures的完成。</p>
+
+<pre><code class="language-java">CompletableFuture&lt;String&gt; future1  
+  = CompletableFuture.supplyAsync(() -&gt; "Hello");
+CompletableFuture&lt;String&gt; future2  
+  = CompletableFuture.supplyAsync(() -&gt; "Beautiful");
+CompletableFuture&lt;String&gt; future3  
+  = CompletableFuture.supplyAsync(() -&gt; "World");
+
+CompletableFuture&lt;Void&gt; combinedFuture 
+  = CompletableFuture.allOf(future1, future2, future3);
+
+combinedFuture.get();
+
+assertTrue(future1.isDone());
+assertTrue(future2.isDone());
+assertTrue(future3.isDone());
+
+</code></pre>
+
+<h1 id="java9新特性">Java9新特性</h1>
+
+<h2 id="模块系统">模块系统</h2>
+
+<p>Java8版本的目录结构</p>
+
+<p><img src="/Users/yoyocheknow/Library/Application Support/typora-user-images/image-20201229161210544.png" alt="image-20201229161210544" /></p>
+
+<p>Java9版本的目录结构</p>
+
+<p><img src="https://tva1.sinaimg.cn/large/0081Kckwly1gm4smus71rj30q60l2wv6.jpg" alt="image-20201229161254458" /></p>
+
+<p>什么是模块？</p>
+
+<p>我们知道，.class文件是JVM看到的最小可执行文件，而一个大型程序需要编写很多Class，并生成一堆.class文件，很不便于管理，所以，jar文件就是class文件的容器。</p>
+
+<p>在Java 9之前，一个大型Java程序会生成自己的jar文件，同时引用依赖的第三方jar文件，而JVM自带的Java标准库，实际上也是以jar文件形式存放的，这个文件叫rt.jar，一共有60多M。</p>
+
+<p>jar只是用于存放class的容器，它并不关心class之间的依赖。</p>
+
+<p>从Java 9开始引入的模块，主要是为了解决“依赖”这个问题。如果a.jar必须依赖另一个b.jar才能运行，那我们应该给a.jar加点说明啥的，让程序在编译和运行的时候能自动定位到b.jar，这种自带“依赖关系”的class容器就是模块。</p>
+
+<p>为了表明Java模块化的决心，从Java 9开始，原有的Java标准库已经由一个单一巨大的rt.jar分拆成了几十个模块，这些模块以.jmod扩展名标识，可以在$JAVA_HOME/jmods目录下找到它们。如下图所示：</p>
+
+<p><img src="https://tva1.sinaimg.cn/large/0081Kckwly1gm4st3p14dj317i0m4qv5.jpg" alt="image-20201229161846352" /></p>
+
+<h2 id="jshell">JShell</h2>
+
+<p>Java9，引入了shell。向动态化语言又走进了一步。初学者学Java，更加方便了。</p>
+
+<p><img src="https://tva1.sinaimg.cn/large/0081Kckwly1gm4suzb2dmj30z80bqn30.jpg" alt="image-20201229162042985" /></p>
+
+<p>JShell 中默认的上下文:</p>
+
+<p>获取当前的执行线程: Thread.currentThread()</p>
+
+<p>获取当前执行的方法名: Thread.currentThread().getStackTrace()[2].getMethodName()</p>
+
+<p>获取当前执行的类名: Thread.currentThread().getStackTrace()[2].getClassName();</p>
+
+<p>在 JShell 中定义一个方法:</p>
+
+<p>在一行内定义:int doubled(int i){ return i*2;}</p>
+
+<p>在多行定义:</p>
+
+<pre><code class="language-java">int add(int i,int j){
+return i+j;
+}
+</code></pre>
+
+<h2 id="改进javadocs">改进JavaDocs</h2>
+
+<p>一直以来，Java 生成的文档 JavaDoc 一直使用的都是 <a href="https://www.twle.cn/l/yufei/html/html-basic-index.html">HTML 4</a> 格式，这次 Java 9 良心大大的发现，使用了 <a href="https://www.twle.cn/l/yufei/html5/html-v5-intro.html">HTML 5</a> ，但还不是默认的，如果要输出 HTML 5 格式，还必须在命令行程序中添加 -html5 选项。</p>
+
+<p>## 集合不可变实例工厂方法</p>
+
+<p>Java 9 为集合接口 ( List 、Set 、Map ) 提供了创建 <strong>不可变实例</strong> 的工厂方法。这些工厂方法为便利而生，以简介简单的方式创建这些集合.创建可变集合很简单，但是创建不可变集合则先需要创建一个可变集合，然后再使用Collections.unmodifiable{Map,Set,List} 创建不可变集合。</p>
+
+<p>1,创建不可变的列表 ( List ):</p>
+
+<p>static <E> List<E> of(E e1, E e2, E e3); 
+2,创建不可变的集合 ( Set ):</E></E></p>
+
+<p>static <E> Set<E> of(E e1, E e2, E e3);</E></E></p>
+
+<p>3,创建不可变的哈希表 ( Hash ):</p>
+
+<p>static &lt;K,V&gt; Map&lt;K,V&gt; of(K k1, V v1, K k2, V v2, K k3, V v3);</p>
+
+<p>static &lt;K,V&gt; Map&lt;K,V&gt; ofEntries(Map.Entry&lt;? extends K,? extends V&gt;… entries)</p>
+
+<h3 id="接口的私有方法">接口的私有方法</h3>
+
+<p>在 Java 8 之前，接口可以有常量变量和抽象方法。我们不能在接口中提供方法实现，如果我们要提供抽象方法和非抽象方法（方法与实现）的组合，那么我们就得使用抽象类。</p>
+
+<p>在 Java 8 接口引入了默认方法和静态方法。我们可以在 Java 8 的接口中编写方法实现，仅仅需要使用default 关键字来定义它们。在 Java 8 中，一个接口中能定义如下几种变量/方法：常量、抽象方法、默认方法、静态方法。</p>
+
+<p>Java 9 不仅像 Java 8 一样支持接口默认方法，同时还支持私有方法。在 Java 9 中，一个接口中能定义如下几种变量/方法：常量、抽象方法、默认方法、静态方法、私有方法、私有静态方法</p>
+
+<h3 id="改进进程管理api">改进进程管理API</h3>
+
+<p>Java 9 对进程管理的改进主要是提供了 ProcessHandle 类。ProcessHandle 可以用于获取进程信息，监听和检查进程的状态，并且可以监听进程的退出。</p>
+
+<p><img src="https://tva1.sinaimg.cn/large/0081Kckwly1gm4twh2jabj30si0je49c.jpg" alt="image-20201229165645962" /></p>
+
+<h3 id="try-with-resource语句">try-with-resource语句</h3>
+
+<p>如果你使用过 <a href="https://www.twle.cn/l/yufei/python30/python-30-index.html">Python</a> ，应该对 with 语句不陌生，with 语句会创建一个独立的上下文，当执行流程离开该上下文时，就会立刻释放该上下文中的所有资源</p>
+
+<pre><code class="language-python">with open('hello.txt') as f:
+    print(f.read()
+</code></pre>
+
+<p>try-with-resources 首先是一个 try 语句，其次，该语句包含一个或多个正式声明的资源。这些资源是一个对象，当不再需要时就应该关闭它。</p>
+
+<p>try-with-resources 语句可以确保在需求完成后关闭每个资源，当然了，这些可以自动关闭的资源也是有条件的，那就是必须实现java.lang.AutoCloseable 或 java.io.Closeable 接口</p>
+
+<h1 id="java10新特性">Java10新特性</h1>
+
+<p>##局部变量的类型推断 var关键字</p>
+
+<pre><code class="language-java">var list = new ArrayList&lt;String&gt;(); // ArrayList&lt;String&gt;
+var stream = list.stream(); // Stream&lt;String&gt;
+</code></pre>
+
+<h2 id="并行全垃圾回收器-g1">并行全垃圾回收器 G1</h2>
+
+<p>初衷：</p>
+
+<p>在G1提出之前，经典的垃圾收集器主要有三种类型：串行收集器、并行收集器和并发标记清除收集器，这三种收集器分别可以是满足Java应用三种不同的需求：内存占用及并发开销最小化、应用吞吐量最大化和应用GC暂停时间最小化，但是，上述三种垃圾收集器都有几个共同的问题：</p>
+
+<p>（1）所有针对老年代的操作必须扫描整个老年代空间；</p>
+
+<p>（2）新生代和老年代是独立的连续的内存块，必须先决定年轻代和老年代在虚拟地址空间的位置。</p>
+
+<p>设计目标：</p>
+
+<p>G1是一种服务端应用使用的垃圾收集器，目标是用在<strong>多核、大内存</strong>的机器上，它在大多数情况下可以实现指定的GC暂停时间，同时还能保持较高的吞吐量。</p>
+
+<p>serial, parallel, CMS垃圾收集器作用于堆上的三个部分：年轻代，老年代，永久代</p>
+
+<p><img src="https://tva1.sinaimg.cn/large/0081Kckwly1gm4x28hkq8j30ri0d8tcz.jpg" alt="image-20201229184604709" /></p>
+
+<p>G1 垃圾收集器采取了另外一种方式：</p>
+
+<p><img src="https://tva1.sinaimg.cn/large/0081Kckwly1gm4x2uchpjj30o80gcwih.jpg" alt="image-20201229184641488" /></p>
+
+<p>每个分区都可能是年轻代也可能是老年代，但是在同一时刻只能属于某个代。年轻代、幸存区、老年代这些概念还存在，成为逻辑上的概念，这样方便复用之前分代框架的逻辑。在物理上不需要连续，则带来了额外的好处——有的分区内垃圾对象特别多，有的分区内垃圾对象很少，G1会优先回收垃圾对象特别多的分区，这样可以花费较少的时间来回收这些分区的垃圾，这也就是G1名字的由来，即首先收集垃圾最多的分区。</p>
+
+<p>###CMS回收器</p>
+
+<p>CMS垃圾收集器运作过程大致划分为以下五个步骤：</p>
+
+<p>1，初始标记 Initial Mark（暂停用户线程）：标记GC roots能直接关联到的对象，速度很快，暂停时间很短。</p>
+
+<p>2，并发标记 Concurrent Marking：在Java应用运行期间从永久代对象图遍历可达的对象。不需要暂停用户线程。</p>
+
+<p>3，重新标记 Remark （暂停用户线程）：为了修正并发标记期间，因用户程序继续运作而错过的一部分对象。</p>
+
+<p>4，并发清除 concurrent sweep：清理删除标记期间判断为死亡的对象。由于不需要移动存活对象，所以这个阶段也是可以和用户线程并发进行的。</p>
+
+<p>5，重置线程：为下一次并发收集做准备。</p>
+
+<p><img src="https://tva1.sinaimg.cn/large/0081Kckwly1gm4x52iimjj311k094h08.jpg" alt="image-20201229184849419" /></p>
+
+<p>CMS收集器的堆结构：</p>
+
+<p>1，堆被分在三个部分。</p>
+
+<p>2，年轻代被分为Eden区 和两个Survivor区。</p>
+
+<p>3，老年代是一块连续的空间。</p>
+
+<p>4，直到一次full GC才会压缩一次空间。</p>
+
+<p><img src="https://tva1.sinaimg.cn/large/0081Kckwly1gm4x7w4q0tj30hs0k4ta1.jpg" alt="image-20201229185131966" /></p>
+
+<p>Yong GC 在CMS收集器下是怎么工作的？</p>
+
+<p>1，绿色部分是年轻代。</p>
+
+<p>2，蓝色部分是老年代。</p>
+
+<p>3，灰色部分是没有分配的空间。</p>
+
+<p>4，CMS收集器下老年代对象会被直接释放，不需要移动。直到一次full GC才会压缩一次空间。</p>
+
+<p><img src="https://tva1.sinaimg.cn/large/0081Kckwly1gm4x9o7z76j30pw0hs14e.jpg" alt="image-20201229185301516" /></p>
+
+<p>年轻代收集过程：</p>
+
+<p>1，年轻代Eden区和Survivor区存活的对象会复制到另一个Survivor区。</p>
+
+<p>2，到达年龄阈值的对象会晋升到老年代</p>
+
+<p><img src="https://tva1.sinaimg.cn/large/0081Kckwly1gm4xc36snvj30n40hedsf.jpg" alt="image-20201229185533259" /></p>
+
+<p>一次Yong GC后：</p>
+
+<p>1，Eden区和其中一块Survivor被释放空间。</p>
+
+<p>2，图中的深蓝色表示晋升到老年代的对象。</p>
+
+<p>3，绿色的部分表示年轻代存活的但是没有晋升的对象。<img src="https://tva1.sinaimg.cn/large/0081Kckwly1gm4xdirueoj30o20gsjxa.jpg" alt="image-20201229185656526" /></p>
+
+<p>CMS下 老年代的收集：</p>
+
+<p>1，初始标记是一个短暂的过程，这个过程存活的可达对象会被标记。</p>
+
+<p>2，并发标记会找到程序继续执行期间存活的对象。</p>
+
+<p>3，重新标记会找到上个阶段被错过的存活对象。</p>
+
+<p><img src="https://tva1.sinaimg.cn/large/0081Kckwly1gm4xelrcrkj30pg0gq0yu.jpg" alt="image-20201229185759136" /></p>
+
+<p>CMS下并发清除：</p>
+
+<p>1，在前几个阶段没有被标记的对象，将会被释放。但是不会移动压缩空间。</p>
+
+<p><img src="https://tva1.sinaimg.cn/large/0081Kckwly1gm4xjtfg7uj30my0fm7a1.jpg" alt="image-20201229190259644" /></p>
+
+<p>CMS下并发清除后：</p>
+
+<p>1，会看到大量的空间被释放，也没有压缩空间。</p>
+
+<p><img src="https://tva1.sinaimg.cn/large/0081Kckwly1gm4xkdqodej30oa0gyn1u.jpg" alt="image-20201229190332268" /></p>
+
+<h3 id="g1回收器">G1回收器</h3>
+
+<p>G1 回收器的堆空间结构：</p>
+
+<p>1，从右图可以看到只有一块空间，被分为大小不同的逻辑块。</p>
+
+<p>2，JVM产生了大约2000块 1～32Mb的小块。</p>
+
+<p><img src="https://tva1.sinaimg.cn/large/0081Kckwly1gm4xl2gypuj30ic0kon00.jpg" alt="image-20201229190412446" /></p>
+
+<p>G1 回收器的堆空间分配：</p>
+
+<p>1，每个分区都可能是年轻代也可能是老年代，但是在同一 时刻只能属于某个代。</p>
+
+<p>2，年轻代、幸存区、老年代这些概念还存在，成为逻辑上的概念，这样方便复用之前分代框架的逻辑。在物理上不需要连续，则带来了额外的好处——有的分区内垃圾对象特别多，有的分区内垃圾对象很少，G1会优先回收垃圾对象特别多的分区，这样可以花费较少的时间来回收这些分区的垃圾，这也就是G1名字的由来，即首先收集垃圾最多的分区。</p>
+
+<p>3，灰色部分称为大对象块，这些块主要被设计用来存放超过标准块50%或者更大的对象，他们会存放在连续的空间。</p>
+
+<p><img src="https://tva1.sinaimg.cn/large/0081Kckwly1gm4xm8jd1tj30m20fiae6.jpg" alt="image-20201229190519809" /></p>
+
+<p>Yong GC 后，年轻代存活的对象会被复制或者移动到存活块。达到年龄阈值的对象会被晋升为老年代块。这是一个暂停用户线程的过程。年轻代是由不连续的逻辑块组成，这使得年轻代更容易被扩展。</p>
+
+<p><img src="https://tva1.sinaimg.cn/large/0081Kckwgy1gm4xmykxapj30iy0d6778.jpg" alt="image-20201229190547797" /></p>
+
+<p><img src="https://tva1.sinaimg.cn/large/0081Kckwgy1gm4xn33bkmj30k80dkmz9.jpg" alt="image-20201229190608785" /></p>
+
+<p>G1 垃圾收集器运作过程大致划分为以下四个步骤：</p>
+
+<p><img src="https://tva1.sinaimg.cn/large/0081Kckwly1gm4xob6qurj30k409tgsz.jpg" alt="image-20201229190717672" /></p>
+
+<p><img src="https://tva1.sinaimg.cn/large/0081Kckwly1gm4xokbu0nj312c0aaaqp.jpg" alt="image-20201229190733848" /></p>
+
+<p>初始标记：</p>
+
+<p>初始标记是对年轻代存活对象的标记。</p>
+
+<p><img src="https://tva1.sinaimg.cn/large/0081Kckwly1gm4xp3wtx9j30lw0eun4c.jpg" alt="image-20201229190805259" /></p>
+
+<p>并发标记：</p>
+
+<p>如果一个空的块被发现，它们会在重新标记阶段被立即清空掉。</p>
+
+<p><img src="https://tva1.sinaimg.cn/large/0081Kckwly1gm4xpj068sj30js0dqjtz.jpg" alt="image-20201229190829679" /></p>
+
+<p><img src="https://tva1.sinaimg.cn/large/0081Kckwly1gm4xpokvlyj30kq0dq764.jpg" alt="image-20201229190837664" /></p>
+
+<p>复制清除阶段：</p>
+
+<p>G1会优先收集低生存率的逻辑块。复制清除后，这些块会被收集，移动到如第二张图的深绿色和深蓝色部分。</p>
+
+<p><img src="https://tva1.sinaimg.cn/large/0081Kckwly1gm4xqbmau7j30n00eeq7k.jpg" alt="image-20201229190915263" /></p>
+
+<p><img src="https://tva1.sinaimg.cn/large/0081Kckwly1gm4xqh24xbj30l40ekacf.jpg" alt="image-20201229190924252" /></p>
+
+<p>老年代GC总结：</p>
+
+<p>并发标记阶段：</p>
+
+<p>•当程序运行时存活信息会同时计算。</p>
+
+<p>•一个逻辑块在暂停期间被认为是最合适回收的时候，存活信息会被确定下来。</p>
+
+<p>•没有像CMS阶段的清除阶段。</p>
+
+<p>重新标记阶段：</p>
+
+<p>•使用Snapshot-at-the-Beginning (SATB) 算法，比CMS更快。</p>
+
+<p>•完全空的逻辑块会被回收。</p>
+
+<p>复制/清除阶段：</p>
+
+<p>•Yong GC 和老年代GC会同时被回收</p>
+
+<p>•老年代逻辑块回收是基于存活率的</p>
+
+<h1 id="java11新特性">Java11新特性</h1>
+
+<p>##基于嵌套的访问控制</p>
+
+<p>##标准 HTTP Client 升级</p>
+
+<p>##简化启动单个源代码文件的方法</p>
+
+<p>此功能允许使用 Java 解释器直接执行 Java 源代码。源代码在内存中编译，然后由解释器执行。</p>
+
+<p>唯一的约束在于所有相关的类必须定义在同一个 Java 文件中。</p>
+
+<p>对于 Java 初学者并希望尝试简单程序的人特别有用，并且能和 jshell 一起使用</p>
+
+<p>一定能程度上增强了使用 Java 来写脚本程序的能力</p>
+
+<p><em>//</em> <em>编译</em> javac <strong>Javastack</strong>.java</p>
+
+<p><em>//</em> <em>运行</em> java <strong>Javastack</strong></p>
+
+<p>##String 类中新的 API</p>
+
+<p>public String strip() 去除前后的空格</p>
+
+<p>public String stripLeading() 去除前面的空格</p>
+
+<p>public String stripTrailing() 去除后面的空格</p>
+
+<p>public boolean isBlank() 判断是否为空，或者只含有空格</p>
+
+<p>public Stream<String> lines() 依据 line terminators (\n \r \r\n) 来进行分割</String></p>
+
+<p>public String repeat(int count) 将字符串重复n次</p>
+
+<p>##用于 Lambda 参数的局部变量语法</p>
+
+<p>##低开销的 Heap Profiling</p>
+
+<p>提供一种低开销的Java堆分配采样方法，可通过JVMTI访问。</p>
+
+<p>目标 ：提供一种可以从JVM中获取堆分配信息的方法。</p>
+
+<p>1，开销足够低，可持续。</p>
+
+<p>2，可以通过定义好的，参数化的接口获得。</p>
+
+<p>3，可以采样所有分配（不局限于某一个特定堆 region的分配）</p>
+
+<p>4，与GC的算法和VM的实现无关。</p>
+
+<p>5，可以给出存活或者死亡对象的信息。</p>
+
+<p>##支持 TLS 1.3 协议</p>
+
+<p>##ZGC：可伸缩低延迟垃圾收集器</p>
+
+<p>ZGC：A Scalable Low Latency Garbage Collector  一款可伸缩、低延迟的GC。</p>
+
+<p>Epsilon垃圾收集器：A NoOp Garbage Collectors没有操作的垃圾收集器。</p>
+
+<p>ZGC设计目标：</p>
+
+<p><img src="https://tva1.sinaimg.cn/large/0081Kckwly1gm4xxdum54j30wo0f8jzc.jpg" alt="image-20201229191602277" /></p>
+
+<p>•GC暂停时间不会超过10ms。</p>
+
+<p>•既能处理几百兆的小堆，也能几T的大堆(OMG)和</p>
+
+<p>•G1相比，应用吞吐能力不会下处理降超过15%</p>
+
+<p>•为未来的GC功能和利用colord指针以及Load barriers 优化奠定基础。</p>
+
+<p>ZGC和其他收集器的对比：</p>
+
+<p><img src="https://tva1.sinaimg.cn/large/0081Kckwly1gm4xy6dvn7j30xk0g010g.jpg" alt="image-20201229191648034" /></p>
+
+<p>ZGC堆内存布局：</p>
+
+<p><img src="https://tva1.sinaimg.cn/large/0081Kckwly1gm4xylgxvwj30jy0dwgpf.jpg" alt="image-20201229191712039" /></p>
+
+<p><strong>染色指针技术</strong></p>
+
+<p>HotSpot虚拟机的标记实现方案有如下几种：</p>
+
+<p>1，把标记直接记录在对象头上（如Serial收集器）；</p>
+
+<p>2，把标记记录在与对象相互独立的数据结构上（如G1、Shenandoah使用了一种相当于堆内存的1/64</p>
+
+<p>大小的，称为BitMap的结构来记录标记信息）；</p>
+
+<p>3，直接把标记信息记在引用对象的指针上（如ZGC）</p>
+
+<p>染色指针是一种直接将少量额外的信息存储在指针上的技术。</p>
+
+<p><img src="https://tva1.sinaimg.cn/large/0081Kckwly1gm4xzt1z44j30v608swl0.jpg" alt="image-20201229191821836" /></p>
+
+<p><strong>三色标记</strong></p>
+
+<p>在并发的可达性分析算法中我们使用三色标记（Tri-color Marking）来标记对象是否被收集器访问过：</p>
+
+<p><strong>白色</strong>：表示对象尚未被垃圾收集器访问过。显然在可达性分析刚刚开始的阶段，所有的对象都是白色的，若在分析结束的阶段，仍然是白色的对象，即代表不可达。</p>
+
+<p><strong>黑色</strong>：表示对象已经被垃圾收集器访问过，且这个对象的所有引用都已经扫描过。黑色的对象代表已经扫描过，它是安全存活的，如果有其他对象引用指向了黑色对象，无须重新扫描一遍。<strong>黑色对象不可能直接（不经过灰色对象）指向某个白色对象</strong>。</p>
+
+<p><strong>灰色</strong>：表示对象已经被垃圾收集器访问过，但这个对象上至少存在一个引用还没有被扫描过。</p>
+
+<p><img src="https://tva1.sinaimg.cn/large/0081Kckwly1gm4y0ucdgrj30lk0mq16n.jpg" alt="image-20201229191919883" /></p>
+
+<p><strong>读屏障</strong></p>
+
+<p>当对象从堆中加载的时候，就会使用到读屏障（Load Barrier）。这里使用读屏障的主要作用就是检查指针上的三色标记位，根据标记位判断出对象是否被移动过，如果没有可以直接访问，如果移动过就需要进行“自愈”（对象访问会变慢，但也只会有一次变慢），当“自愈”完成后，后续访问就不会变慢了。</p>
+
+<p>ZGC运作过程：</p>
+
+<p><img src="/Users/yoyocheknow/Library/Application Support/typora-user-images/image-20201229192037093.png" alt="image-20201229192037093" /></p>
+
+<p><strong>并发标记（Concurrent Mark）</strong>：与G1、Shenandoah一样，并发标记是遍历对象图做可达性分析的阶段，它的初始标记和最终标记也会出现短暂的停顿，整个标记阶段只会更新染色指针中的Marked 0、Marked 1标志位。</p>
+
+<p><strong>并发预备重分配（Concurrent Prepare for Relocate）</strong>：这个阶段需要根据特定的查询条件统计得出本次收集过程要清理哪些Region，将这些Region组成<strong>重分配集（Relocation Set）</strong>。ZGC每次回收都会扫描所有的Region，用范围更大的扫描成本换取省去G1中记忆集的维护成本。</p>
+
+<p><strong>并发重分配（Concurrent Relocate）</strong>：重分配是ZGC执行过程中的核心阶段，这个过程要把重分配集中的存活对象复制到新的Region上，并为重分配集中的每个Region维护一个转发表（Forward Table），记录从旧对象到新对象的转向关系。ZGC收集器能仅从引用上就明确得知一个对象是否处于重分配集之中，如果用户线程此时并发访问了位于重分配集中的对象，这次访问将会被预置的内存屏障所截获，然后立即根据Region上的转发表记录将访问转发到新复制的对象上，并同时修正更新该引用的值，使其直接指向新对象，ZGC将这种行为称为指针的“自愈”（Self-Healing）能力。</p>
+
+<p><strong>并发重映射（Concurrent Remap）</strong>：重映射所做的就是修正整个堆中指向重分配集中旧对象的所有引用，但是ZGC中对象引用存在“自愈”功能，所以这个重映射操作并不是很迫切。ZGC很巧妙地把并发重映射阶段要做的工作，合并到了下一次垃圾收集循环中的并发标记阶段里去完成，反正它们都是要遍历所有对象的，这样合并就节省了一次遍历对象图的开销。</p>
+
+<h2 id="飞行记录器">飞行记录器</h2>
+
+<p>Java飞行记录仪(Java Flight Recorder)已经变成Java 11的一部分了，之前它是一个商业功能，但是伴随<a href="http://openjdk.java.net/jeps/328">JEP 328</a>的 Java 11发布，它从OracleJDK开源到了OpenJDK。Java飞行记录器类似飞机的黑盒子，可以将OS系统和JVM中发生的事件记录下来，然后就可以使用Java Mission Control（JMC）进行性能侦测和分析了。启用JFR可以最大限度地降低工具本身对JVM性能的影响，JVM其他性能监测工具对应用运行性能都有影响，因此很少在生产环境一直启用，而JFR则可以在生产环境部署启用。</p>
+
+<p>目标：提供低开销的数据收集框架，用于对Java应用程序和HotSpot JVM进行故障排除。</p>
+
+<p>##动态类文件常量</p>
+
+<p>##删除 Java EE 和 CORBA 模块</p>
+
+<h1 id="java12新特性">Java12新特性</h1>
+
+<p>##一个低停顿垃圾收集器</p>
+
+<p>##Switch 表达式扩展（预览功能）</p>
+
+<p>##引入 JVM 常量 API</p>
+
+<p>##改进 AArch64 实现</p>
+
+<p>##使用默认类数据共享（CDS）存档</p>
+
+<p>##改善 G1 垃圾收集器，使其能够中止混合集合</p>
+
+<p>##增强 G1 垃圾收集器，使其能自动返回未用堆内存给操作系统</p>
+
+<h1 id="java13新特性">Java13新特性</h1>
+
+<p>##动态应用程序类-数据共享</p>
+
+<p>##增强 ZGC 释放未使用内存</p>
+
+<p>##Socket API 重构</p>
+
+<p>##Switch 表达式扩展（预览功能）</p>
+
+<p>##文本块（预览功能）</p>
