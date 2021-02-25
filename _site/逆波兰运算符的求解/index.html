@@ -66,7 +66,7 @@ S1暂存运算符，但是要保证越到栈顶，运算符优先级越高，然
     
   
   
-    遇见除号 “/”，按照上述规则处理，弹出减号“—”到S2。
+    遇见除号 “/”，比S1栈顶“—”优先级高，压入S1。
 
     
   
@@ -282,7 +282,7 @@ S1暂存运算符，但是要保证越到栈顶，运算符优先级越高，然
     
   
   
-    遇见除号 “/”，按照上述规则处理，弹出减号“—”到S2。
+    遇见除号 “/”，比S1栈顶“—”优先级高，压入S1。
 
     
   
@@ -675,14 +675,14 @@ public int getPriority(String c){
     <p><img src="https://tva1.sinaimg.cn/large/008eGmZEly1gnztd2stijj30au0dnmx9.jpg" alt="image-20210225153058638" /></p>
   </li>
   <li>
-    <p>遇见除号 “/”，按照上述规则处理，弹出减号“—”到S2。</p>
+    <p>遇见除号 “/”，比S1栈顶“—”优先级高，压入S1。</p>
 
-    <p><img src="https://tva1.sinaimg.cn/large/008eGmZEly1gnztdu26o1j30bk0gwt8x.jpg" alt="image-20210225153140615" /></p>
+    <p><img src="https://tva1.sinaimg.cn/large/008eGmZEly1gnzu4794f0j30bc0gzq35.jpg" alt="image-20210225155700732" /></p>
   </li>
   <li>
     <p>遇见F，压入栈S2。此时扫描完全部字符，最后把栈S1中非“#”的字符全部压入栈S2中，就得到了最后的逆波兰运算符。</p>
 
-    <p><img src="https://tva1.sinaimg.cn/large/008eGmZEly1gnztfnygq8j30ax0gy74h.jpg" alt="image-20210225153325346" /></p>
+    <p><img src="https://tva1.sinaimg.cn/large/008eGmZEly1gnzu6k4qgdj30c50hegm6.jpg" alt="image-20210225155907127" /></p>
   </li>
 </ol>
 
