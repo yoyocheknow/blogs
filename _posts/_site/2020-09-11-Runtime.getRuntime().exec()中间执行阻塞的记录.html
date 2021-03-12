@@ -1,0 +1,174 @@
+<blockquote>
+  <p>背景：我们正在做一个专属化打包平台，会调用Android 和iOS 的python脚本执行打包命令。但是在执行Android 的python打包脚本时，中间会莫名其妙的阻塞。</p>
+</blockquote>
+
+<p>先来看一下一开始写的代码：</p>
+
+<p>```java
+public static void executePython(String path,String logPath,String taskId) {</p>
+
+<pre><code>    Process proc;
+    StringBuffer stringBuffer = new StringBuffer();
+    try {
+        String[] args = new String[] { "python3", path, taskId };
+        log.info("python commends: python ,path: {},taskId: {}",path,taskId);
+        proc = Runtime.getRuntime().exec(args);// 执行py文件
+        log.info("proc:"+proc);
+
+					//用输入输出流来截取结果
+        BufferedReader in = new BufferedReader(new InputStreamReader(proc.getInputStream()));
+        BufferedReader stderr = new BufferedReader(new InputStreamReader(proc.getErrorStream()));
+        String line;
+        while ((line=in.readLine()) != null) {
+            System.out.println("来自python脚本："+line);
+            stringBuffer.append(line);
+            stringBuffer.append("\n");
+        }
+        while ((line = stderr.readLine()) != null)
+        {
+            System.out.println("来自python脚本："+ line);
+            stringBuffer.append(line);
+            stringBuffer.append("\n");
+        }
+
+        in.close();
+        stderr.close();
+        proc.waitFor();
+    } catch (Exception e) {
+        log.info("执行python脚本异常 :",e);
+        throw new Exception("执行python脚本异常", e.getMessage());
+    }
+
+    FileWriter writer;
+    try {
+        writer = new FileWriter(logPath);
+        writer.write(String.valueOf(stringBuffer));
+        writer.flush();
+        writer.close();
+    } catch (IOException e) {
+        e.printStackTrace();
+    }
+
+
+} ```
+</code></pre>
+
+<p>通过Runtime.getRuntime().exec 执行python脚本，然后获取proc返回的日志流并记录在文件中。但是在调用Android的python打包脚本时，中间会阻塞。</p>
+
+<p>我在排查原因时走了很多弯路。因为这段代码在执行 IOS的打包脚本时是没有问题的，只要执行Android的打包脚本就会中间阻塞。而且IOS打包脚本输出的日志要大的多，最终的日志大小有100多M，而Android的要小的多，大约10多M。然后为了排除这个原因，我就把获取proc的输入流取消掉，即不接受子进程的日志。代码变成下面这个样子：</p>
+
+<p>```java
+public static void executePython(String path,String logPath,String taskId) {</p>
+
+<pre><code>    Process proc;
+    StringBuffer stringBuffer = new StringBuffer();
+    try {
+        String[] args = new String[] { "python3", path, taskId };
+        log.info("python commends: python ,path: {},taskId: {}",path,taskId);
+        proc = Runtime.getRuntime().exec(args);// 执行py文件
+        log.info("proc:"+proc);
+        proc.waitFor();
+    } catch (Exception e) {
+        log.info("执行python脚本异常 :",e);
+        throw new ECRemoteServiceException("执行python脚本异常", e.getMessage());
+    }
+
+} ```
+</code></pre>
+
+<p>但是依然中间会阻塞住。</p>
+
+<p>然后我们从内存的角度来看一下运行的过程，通过jstack查看堆栈信息，如下图所示：</p>
+
+<p><img src="https://tva1.sinaimg.cn/large/007S8ZIlly1gimsepcsktj316s0u0127.jpg" alt="堆栈信息" /></p>
+
+<p>从上面看出，第一个线程是执行python脚本的线程，处于runable状态，第二个线程是获取process的inputStream流信息，也是处于runnable状态，这么看并没有任何问题。下面看一下堆内存的使用情况：</p>
+
+<p><img src="https://tva1.sinaimg.cn/large/007S8ZIlly1gimsfiw885j314g0u00xq.jpg" alt="img" /></p>
+
+<p>虽然处于上升状态，但依然没有超过最大堆内存。所以也没有什么问题。</p>
+
+<table>
+  <tbody>
+    <tr>
+      <td>但是后来想到，这个堆内存使用信息是打包平台服务的内存使用情况，并不能体现出打包脚本的内存使用（因为Android打包脚本 也是java服务）。通过“ps -ef</td>
+      <td>grep java” 查看一下：</td>
+    </tr>
+  </tbody>
+</table>
+
+<p><img src="https://tva1.sinaimg.cn/large/007S8ZIlly1gimsfugnazj324w07mtc9.jpg" alt="img" /></p>
+
+<p><img src="https://tva1.sinaimg.cn/large/007S8ZIlly1gimsg01fhaj325c09sjtv.jpg" alt="img" /></p>
+
+<p>可以看到打包脚本的内存占用是3.5个G，打包脚本的最大堆内存设置的是5个G。到这里依然没有发现是什么原因。</p>
+
+<p>但是有一个奇怪现象是，本来我的代码中是想着实时获取打包脚本的日志流，并放在一个BufferReader里面，打包完成后再写入到本地的文件，但是中间执行过程中始终没有日志输出，当卡了好久，把打包线程终止后，日志才花花地输出。</p>
+
+<p>下面我们看一下process具体是个什么东西？</p>
+
+<blockquote>
+  <p>The <a href="https://docs.oracle.com/javase/8/docs/api/java/lang/ProcessBuilder.html#start--"><code>ProcessBuilder.start()</code></a> and <a href="https://docs.oracle.com/javase/8/docs/api/java/lang/Runtime.html#exec-java.lang.String:A-java.lang.String:A-java.io.File-"><code>Runtime.exec</code></a> methods create a native process and return an instance of a subclass of <code>Process</code> that can be used to control the process and obtain information about it. The class <code>Process</code> provides methods for performing input from the process, performing output to the process, waiting for the process to complete, checking the exit status of the process, and destroying (killing) the process.</p>
+</blockquote>
+
+<p>Runtime.exec 方法会创建一个本地的进程，并返回子进程的一个process实例，通过这个process实例可以控制这个子进程，或者获取关于子进程的信息。Process类提供了获取子进程input，output的方法，等待子进程执行成功，检查子进程存在状态，销毁子进程的方法。</p>
+
+<blockquote>
+  <p>By default, the created subprocess does not have its own terminal or console. All its standard I/O (i.e. stdin, stdout, stderr) operations will be redirected to the parent process, where they can be accessed via the streams obtained using the methods <a href="https://docs.oracle.com/javase/8/docs/api/java/lang/Process.html#getOutputStream--"><code>getOutputStream()</code></a>, <a href="https://docs.oracle.com/javase/8/docs/api/java/lang/Process.html#getInputStream--"><code>getInputStream()</code></a>, and <a href="https://docs.oracle.com/javase/8/docs/api/java/lang/Process.html#getErrorStream--"><code>getErrorStream()</code></a>. The parent process uses these streams to feed input to and get output from the subprocess. Because some native platforms only provide limited buffer size for standard input and output streams, failure to promptly write the input stream or read the output stream of the subprocess may cause the subprocess to block, or even deadlock.</p>
+</blockquote>
+
+<p>创建的子进程没有自己terminal或者控制台输出，它所有的标准I/O流（比如stdin，stout，stderr）操作将会被重定向到父进程。这些流可以通过getOutputStream()， getInputStream()， getErrorStream()方法来获取。所以父进程可以通过这些stream来获取子进程的input和output。因为一些本地的平台为标准的输入输出流只提供了有限的buffer size，所以如果不能及时地写入input流或者读取output流会导致 子进程阻塞甚至死锁。</p>
+
+<p>以上是JDK中对Process类的描述。关键的一句话就是“<strong>要及时的读取或者写入 子进程的输出或者输入流，否则就会因为buffer size 有限而导致子进程阻塞</strong>”。从这句话基本就可以定位为什么上面的程序在执行脚本时中间会卡住。</p>
+
+<p>很明显子进程打包脚本的日志是一直在内存里的，当进程销毁时，才输出出来。然后查看process的定义，发现果然如此。子进程的日志是一直写入在内存缓冲区的，需要消费掉，才不会导致阻塞。那么我们就新起一个子线程来专门消费这个日志流。代码如下所示：</p>
+
+<p>```java
+public class JavaExecutePythonUtils {</p>
+
+<pre><code>static ExecutorService executor = Executors.newFixedThreadPool(20);
+public static void executePython(String path,String logPath,String taskId) {
+
+    Process proc;
+    try {
+        String[] args = new String[] { "python3", path, taskId };
+        log.info("python commends: python ,path: {},taskId: {}",path,taskId);
+        proc = Runtime.getRuntime().exec(args);// 执行py文件
+        log.info("proc:"+proc);
+
+        new Thread(new OutputHandlerRunnable(proc.getInputStream())).start();
+        new Thread(new OutputHandlerRunnable(proc.getErrorStream())).start();
+
+      
+    } catch (Exception e) {
+        log.info("执行python脚本异常 :",e);
+        throw new ECRemoteServiceException("执行python脚本异常", e.getMessage());
+    }
+}
+
+@Data
+@AllArgsConstructor
+private static class OutputHandlerRunnable implements Runnable {
+    private InputStream in;
+
+    @Override
+    public void run() {
+        try (BufferedReader bufr = new BufferedReader(new InputStreamReader(this.in))) {
+            String line = null;
+            while ((line = bufr.readLine()) != null) {
+                System.out.println("来自python脚本："+line);
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+
+    }
+} } ```
+</code></pre>
+
+<p>可以发现，打包脚本日志可以实时输出在控制台了，而且也打包成功了，再也不阻塞了。</p>
+
+<p><strong>总结：</strong></p>
+
+<p>其实，源码已经给了我答案，但是由于第一次安卓是打包成功的，然后又觉得后面不读取process的输出流就规避了I/O的问题，但是因为理解的偏差，没有发现原因所在。还有一个误导我的点是，IOS的打包脚本可以成功。不存在这个阻塞的问题。这个我依然没有搞明白是为什么，既然都是开辟了新的子线程，那么就跟我本地的Java服务没有关系了，为什么安卓的就不行呢？请大佬们点拨一下。</p>

@@ -1,0 +1,216 @@
+<p>比如对中缀表达式“(A+B)*C-(D+E)/F” ,其逆波兰表达式应该为“AB+C*DE+F/-”, 这样一来在计算表达式时，可以借助栈忽略括号的优先级。比如计算这个逆波兰表达式时，可以先计算A+B 得出结果然后再压入栈，然后再将前两个元素弹出栈，再把运算符 * 弹出，计算结果后再压入栈。这样，最后栈中存的最后元素就是表达式结果。</p>
+
+<p>下面来看一下，如何把中缀表达式转化为逆波兰表达式。</p>
+
+<p>首先借助两个栈S1，S2，栈S1用于临时存储运算符，其中有一个原则就是越往栈顶，运算符优先级越高。栈S2用于输入逆波兰表达式。</p>
+
+<p>总体思路：</p>
+
+<p>S1暂存运算符，但是要保证越到栈顶，运算符优先级越高，然后把数字元素放在S2中。</p>
+
+<p>如果在遍历表达式时碰见运算符X 的优先级小于S1栈顶的优先级时，那么就把S1的这些栈顶运算符搬到S2中，直到S1栈顶的运算符优先级小于X，此时再将X压入S1中。</p>
+
+<p>如果在遍历表达式时碰见括号，如果碰见左括号’(‘，就把左括号先放在S1中，等碰到右括号’)’时，再把S1左括号至栈顶这些运算符搬到S2中。当然此时这个左括号，右括号要抛弃掉，S1弹出。只保留左括号-右括号中间的运算符。</p>
+
+<p>如果在遍历表达式时遇见数字，那么就将数字压入栈S2中。</p>
+
+<p>针对表达式”(A+B)*C-(D+E)/F”，按照上面的思路走一遍流程。</p>
+
+<ol>
+  <li>
+    <p>先往栈S1中压入最小优先级运算符“#”,减少后续的判空处理。</p>
+  </li>
+  <li>
+    <p>第一个运算符左括号“(”,压入栈S1.第二个A是 非运算符，压入栈S2。接着第三个是“+”，由于栈顶是左括号，直接压入栈S1，第四个字符是B，压入栈S2.如下图所示：</p>
+
+    <p><img src="https://tva1.sinaimg.cn/large/008eGmZEly1gnzt245ksuj30bj07zt8o.jpg" alt="image-20210225152026080" /></p>
+  </li>
+  <li>
+    <p>此时遇见右括号 ），+ 弹出栈S1，压入S2，然后将弹出左括号（</p>
+
+    <p><img src="https://tva1.sinaimg.cn/large/008eGmZEly1gnzt2ru504j30av08hq2w.jpg" alt="image-20210225152104512" /></p>
+
+    <p>​</p>
+  </li>
+  <li>
+    <p>此时扫描到”*“,比# 优先级高，压入栈S1，下一步扫描到C，非运算符压入栈S2.</p>
+
+    <p><img src="https://tva1.sinaimg.cn/large/008eGmZEly1gnzt76krhsj30at08o0sw.jpg" alt="" /></p>
+  </li>
+  <li>
+    <p>遇见减号“-”，和S1栈顶“*” 优先级比较，将“**”弹出压入S2中。减号“-”压入栈S1.</p>
+
+    <p><img src="https://tva1.sinaimg.cn/large/008eGmZEly1gnzt903p4cj30b70d7glp.jpg" alt="image-20210225152701673" /></p>
+  </li>
+  <li>
+    <p>扫描到左括号“(”，压入栈S1。扫描到D，压入栈S2。扫描到加号“+”,由于栈顶是“(”,所以直接压入栈S1。扫描到E，压入栈S2.</p>
+
+    <p><img src="https://tva1.sinaimg.cn/large/008eGmZEly1gnztc2l44gj30b20de0su.jpg" alt="image-20210225152958687" /></p>
+  </li>
+  <li>
+    <p>此时又碰见右括号，按上次规则处理。</p>
+
+    <p><img src="https://tva1.sinaimg.cn/large/008eGmZEly1gnztd2stijj30au0dnmx9.jpg" alt="image-20210225153058638" /></p>
+  </li>
+  <li>
+    <p>遇见除号 “/”，比S1栈顶“—”优先级高，压入S1。</p>
+
+    <p><img src="https://tva1.sinaimg.cn/large/008eGmZEly1gnzu4794f0j30bc0gzq35.jpg" alt="image-20210225155700732" /></p>
+  </li>
+  <li>
+    <p>遇见F，压入栈S2。此时扫描完全部字符，最后把栈S1中非“#”的字符全部压入栈S2中，就得到了最后的逆波兰运算符。</p>
+
+    <p><img src="https://tva1.sinaimg.cn/large/008eGmZEly1gnzu6k4qgdj30c50hegm6.jpg" alt="image-20210225155907127" /></p>
+  </li>
+</ol>
+
+<p>​</p>
+
+<p>然后我们来实现一下代码：</p>
+
+<p>```java
+ public void RPN(Deque<String> stack1,Deque<String> stack2,String s){
+        char[] chars = s.toCharArray();
+        //以下操作都是为了避免出现123+234 这种多位数字的情况，所以要先做好预处理
+        List<String> sb = new ArrayList&lt;&gt;();
+        sb.add(String.valueOf(chars[0]));
+        for(int i=1;i&lt;chars.length;i++){
+            //如果上一个字符为数字，且当前也为数字,计算出一个新的数字并放到sb里面
+            if(Character.isDigit(chars[i-1]) &amp;&amp;  Character.isDigit(chars[i])){
+                int last = Integer.valueOf(sb.get(sb.size()-1));
+                last =last*10;
+                last = last + chars[i]-'0';
+                sb.remove(sb.size()-1);
+                sb.add(String.valueOf(last));
+            }else{
+                sb.add(String.valueOf(chars[i]));
+            }
+        }
+        //# 表示最低优先级 ，减少stack1的判空
+        stack1.push("#");
+        for(int i=0;i&lt;sb.size();i++){
+            String c = sb.get(i);
+            switch (c){
+                //忽略空格
+                case " ": break;
+                //遇'(' 直接入栈1
+                case "(" :
+                    stack1.push(c); break;
+                //遇见'(',则将距离栈s1栈顶的最近的'('之间的运算符，逐个出栈，依次压入栈s2，此时抛弃'('；
+                case ")":
+                    while (!stack1.peek().equals("(")){
+                        stack2.push(stack1.pop());
+                    }
+                    stack1.pop();
+                    break;
+                //遇见以下运算符，分两种情况讨论：
+                //1. 若当前栈s1的栈顶元素是'('，则将x直接压入栈s1；
+                //2. 若当前栈s1的栈顶元素不为'('，则将x与栈s1的栈顶元素比较，
+                //若x的优先级大于栈s1栈顶运算符优先级，则将x直接压入栈s1。
+                //否则，将栈s1的栈顶运算符弹出，压入栈s2中，直到栈s1的栈顶运算符优先级别低于x的优先级，或栈s2的栈顶运算符为'('，此时再则将x压入栈s1
+                case "+":
+                case "-":
+                case "*":
+                case "/":
+                    if(stack1.peek().equals("(")){
+                        stack1.push(c);
+                    }
+                    else{
+                        if(getPriority(c)&gt;getPriority(stack1.peek())){
+                            stack1.push(c);
+                        }else{
+                            while (getPriority(stack1.peek())&gt;=getPriority(c)|| stack2.peek().equals("(")){
+                                stack2.push(stack1.pop());
+                            }</String></String></String></p>
+
+<pre><code>                        stack1.push(c);
+                    }
+                }
+                break;
+            default:
+                stack2.push(c);
+                break;
+
+        }
+    }
+    while (!stack1.isEmpty() &amp;&amp; !stack1.peek().equals("#")){
+        stack2.push(stack1.pop());
+    }
+}
+</code></pre>
+
+<p>public int getPriority(String c){
+        switch (c){
+            case “#”:
+                return 0;
+            case “+”:
+                return 1;
+            case “-“:
+                return 1;
+            case “*”:
+                return 2;
+            case “/”:
+                return 2;
+            default:return 0;
+        }
+    }
+```</p>
+
+<p>顺便把根据逆波兰运算符的计算代码也列一下：</p>
+
+<p>```java
+ public int calculate(String s) {
+        Deque<String> stack1 = new ArrayDeque&lt;&gt;();
+        Deque<String> stack2= new ArrayDeque&lt;&gt;();
+        s = s.trim();
+        if (s.charAt(0) == '-')
+            s = "0" + s;
+        //将中缀表达式，转化为逆波兰运算符
+        RPN(stack1,stack2,s);
+        /**
+         * 计算逆波兰运算符
+         * 借助一个辅助栈，从s2中左边弹出元素放入help辅助栈内。
+         * 如果是数字则直接放入help内
+         * 如果是运算符，则使用help的栈顶两个元素 按照此运算符进行运算。然后将结果压入help栈内。
+         * 依次类推，直到遍历完整个s2栈。
+         * 结果就是help的栈顶元素。
+         */
+        Deque<Integer> help = new ArrayDeque&lt;&gt;();
+        while (!stack2.isEmpty()){
+           if(stack2.peekLast().equals("+")){
+               int a = help.pop();
+               int b = help.pop();
+               a=a+b;
+               stack2.pollLast();
+               help.push(a);
+           }
+           else if(stack2.peekLast().equals("-")){
+               int a = help.pop();
+               int b = help.pop();
+               a=b-a;
+               stack2.pollLast();
+               help.push(a);
+           }
+            else if(stack2.peekLast().equals("*")){
+               int a = help.pop();
+               int b = help.pop();
+               a=a*b;
+               stack2.pollLast();
+               help.push(a);
+            }
+            else if(stack2.peekLast().equals("/")){
+               int a = help.pop();
+               int b = help.pop();
+               a=b/a;
+               stack2.pollLast();
+               help.push(a);
+            }
+            else{
+               help.push(Integer.valueOf(stack2.pollLast()));
+            }
+        }
+        return help.peek();
+    }</Integer></String></String></p>
+
+<p>```</p>
+
